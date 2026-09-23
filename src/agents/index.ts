@@ -9,6 +9,7 @@ import {
   findPendingReservation,
   findUpcomingReservation,
   findAvailableRooms,
+  getEmployeeProfile,
   listRooms,
   nightsBetween,
 } from '../db/repositories.ts';
@@ -54,11 +55,21 @@ function toolFacts(actions: ToolResult[]): string[] {
 export async function handleGreeting(input: AgentInput): Promise<AgentOutput> {
   const { customer, hotel, classification } = input.ctx;
   const lang = classification.entities.dateRef ? (customer?.language === 'en' ? 'en' : 'fr') : (customer?.language === 'en' ? 'en' : 'fr');
+  
+  // Get employee identity
+  const empProfile = getEmployeeProfile(hotel.id);
+  const empName = empProfile?.name ?? (lang === 'fr' ? 'votre réceptionniste virtuelle' : 'your virtual front desk assistant');
+  const greeting = empProfile?.welcome_message ?? null;
+  
+  if (greeting && (!customer || !customer.name)) {
+    return { reply: greeting, facts: [], changed: false };
+  }
+  
   if (customer && customer.name) {
     return {
       reply: EN(
-        `Bonjour ${customer.name} 👋 Bienvenue au ${hotel.name}. Je suis votre réceptionniste virtuelle. Je peux vérifier la disponibilité, les tarifs, vous aider à réserver, ou répondre à vos questions. Que puis-je faire pour vous ?`,
-        `Hello ${customer.name} 👋 Welcome to ${hotel.name}. I'm your virtual front desk assistant. I can check availability, rates, help you book, or answer questions. How can I help?`,
+        `Bonjour ${customer.name} 👋 ${greeting || `Bienvenue au ${hotel.name}. Je suis ${empName}. Je peux vérifier la disponibilité, les tarifs, vous aider à réserver, ou répondre à vos questions. Que puis-je faire pour vous ?`}`,
+        `Hello ${customer.name} 👋 ${greeting || `Welcome to ${hotel.name}. I'm ${empName}. I can check availability, rates, help you book, or answer questions. How can I help?`}`,
         lang,
       ),
       facts: [],
@@ -67,8 +78,8 @@ export async function handleGreeting(input: AgentInput): Promise<AgentOutput> {
   }
   return {
     reply: EN(
-      `Bonjour 👋 Bienvenue au ${hotel.name}. Je suis votre réceptionniste virtuelle. Je peux vérifier la disponibilité, les tarifs, vous aider à réserver, ou répondre à vos questions. Que puis-je faire pour vous ?`,
-      `Hello 👋 Welcome to ${hotel.name}. I'm your virtual front desk assistant. I can check availability, rates, help you book, or answer questions. How can I help?`,
+      `Bonjour 👋 ${greeting || `Bienvenue au ${hotel.name}. Je suis ${empName}. Je peux vérifier la disponibilité, les tarifs, vous aider à réserver, ou répondre à vos questions. Que puis-je faire pour vous ?`}`,
+      `Hello 👋 ${greeting || `Welcome to ${hotel.name}. I'm ${empName}. I can check availability, rates, help you book, or answer questions. How can I help?`}`,
       lang,
     ),
     facts: [],

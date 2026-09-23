@@ -4,20 +4,23 @@ import assert from 'node:assert/strict';
 import { processMessage } from '../src/core/orchestrator.ts';
 import { openDb } from '../src/db/client.ts';
 import { migrate } from '../src/db/schema.ts';
-import { seedDemoHotel } from '../src/db/seed.ts';
-import { getHotelBySlug, listRooms, listKnowledge } from '../src/db/repositories.ts';
+import { createHotel, createRoom, createKnowledgeItem, listRooms, listKnowledge } from '../src/db/repositories.ts';
 
 openDb();
 migrate();
 
-const existing = getHotelBySlug('demo');
-const demoHotelId = existing ? existing.id : seedDemoHotel(true);
+const ts = Date.now();
+const hotelId = createHotel({ slug: `avail-${ts}`, name: 'Avail Test Hotel' });
+createRoom(hotelId, { number: '101', roomType: 'standard', name: 'Chambre Standard', basePrice: 25000 });
+createRoom(hotelId, { number: '102', roomType: 'standard', name: 'Chambre Standard', basePrice: 25000 });
+createRoom(hotelId, { number: '201', roomType: 'executive', name: 'Chambre Exécutive', basePrice: 38000 });
+createKnowledgeItem(hotelId, { category: 'location', question: 'Where are you?', answer: 'We are in Test City.' });
 
 test('returns availability when rooms exist', async () => {
   const result = await processMessage({
-    hotelId: demoHotelId,
+    hotelId,
     channel: 'web',
-    text: 'Do you have a room for friday?',
+    text: 'Do you have rooms for friday?',
   });
   assert.ok(result.reply);
   assert.equal(result.intent, 'availability');
@@ -26,7 +29,7 @@ test('returns availability when rooms exist', async () => {
 
 test('returns price information', async () => {
   const result = await processMessage({
-    hotelId: demoHotelId,
+    hotelId,
     channel: 'web',
     text: 'How much is the executive room?',
   });
@@ -36,20 +39,20 @@ test('returns price information', async () => {
 
 test('handles location query', async () => {
   const result = await processMessage({
-    hotelId: demoHotelId,
+    hotelId,
     channel: 'web',
     text: 'Where are you located?',
   });
   assert.ok(result.reply);
-  assert.ok(result.reply.toLowerCase().includes('douala'), 'Should mention Douala');
+  assert.ok(result.reply.toLowerCase().includes('test city'), 'Should mention test city');
 });
 
 test('has rooms seeded', () => {
-  const rooms = listRooms(demoHotelId);
+  const rooms = listRooms(hotelId);
   assert.ok(rooms.length > 0);
 });
 
 test('has knowledge base seeded', () => {
-  const items = listKnowledge(demoHotelId);
-  assert.ok(items.length > 5);
+  const items = listKnowledge(hotelId);
+  assert.ok(items.length > 0);
 });

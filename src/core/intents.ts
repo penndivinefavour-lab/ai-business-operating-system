@@ -51,14 +51,14 @@ const RULES: IntentRule[] = [
   {
     name: 'availability', confidence: 0.9, priority: 3,
     patterns: [
-      /\b(do you have (any )?(a |the )?room|have availab|any (room|free) (for|on)|is (a |the )?room (available|free)|chambre (disponible|libre)|avez[- ]vous (une |des )?(chambre|dispo)|avoir une chambre|dispo|availability|free room|rooms available|available for|(what|how) about (a |the )?(suite|deluxe|king|bigger room|larger room)|et pour (une |la )?suite)\b/,
+      /\b(do you have (any )?(a |the )?rooms?\b|have availab|any (room|free) (for|on)|is (a |the )?rooms? (available|free)|chambre(s)? (disponible|libre)|avez[- ]vous (une |des )?(chambre|dispo)|avoir une chambre|dispo|availability|free rooms?|rooms? available|available for|(what|how) about (a |the )?(suite|deluxe|king|bigger room|larger room)|et pour (une |la )?suite)\b/,
       /\b(disponibilite|disponibilité)\b/,
     ],
   },
   {
     name: 'price', confidence: 0.88, priority: 3,
     patterns: [
-      /\b(how much|combien (coute|co te|ca coute)|price|prix|tarif|rate for|cost|taux|le prix|couts?|coutent|economic|moins cher|c'est combien|what is the (price|rate))\b/,
+      /\b(how much|combien (coute|co te|ca coute)|price|prix|tarif|rate|rates|cost|taux|le prix|couts?|coutent|economic|moins cher|c'est combien|what is the (price|rate))\b/,
     ],
   },
   {
@@ -84,7 +84,7 @@ const RULES: IntentRule[] = [
   {
     name: 'booking', confidence: 0.86, priority: 3,
     patterns: [
-      /\b(want to (book|stay|reserve)|i.d like to (book|reserve|stay)|like to book|book a room|booking|reserve (a |the )?(room|chambre)|reservation|to book|reserver|réserver|je (veux|voudrais|souhaite) (reserver|réserver|prendre un?|louer)|i.d like|je voudrais|peut[- ]?etre (reserver|réserver)|bestellen|stay for|arrive on|for (one|two|three|four|five|six|une|deux|trois|quatre|cinq) night|pat(\d+|urne|urn|nights)\b)\b/,
+      /\b(want to (book|stay|reserve)|i.d like to (book|reserve|stay)|like to book|book a room|booking|reserve (a |the )?rooms?|reservation|to book|reserver|réserver|je (veux|voudrais|souhaite) (reserver|réserver|prendre un?|louer)|i.d like|je voudrais|peut[- ]?etre (reserver|réserver)|bestellen|stay for|arrive on|book (it|this|that|the (?:standard|executive|suite|room|chambre)))/,
     ],
   },
   {

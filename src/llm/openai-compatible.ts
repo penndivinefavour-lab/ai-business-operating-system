@@ -27,8 +27,8 @@ export class OpenAICompatibleProvider implements LlmProvider {
       return req.proposedReply;
     }
     const base = this.cfg.baseUrl || 'https://api.openai.com/v1';
-    const history = req.history.slice(-6).map((m) => ({
-      role: m.sender === 'guest' ? 'user' : ('assistant' as const),
+    const history = req.history.slice(-8).map((m) => ({
+      role: m.sender === 'guest' ? 'user' as const : 'assistant' as const,
       content: m.body,
     }));
 
@@ -40,13 +40,11 @@ export class OpenAICompatibleProvider implements LlmProvider {
         ...history,
         {
           role: 'system' as const,
-          content:
-            'VERIFIED FACTS (use these and only these for anything factual):\n' +
-            req.facts.map((f) => `- ${f}`).join('\n'),
+          content: 'VERIFIED FACTS (use these and only these for anything factual):\n' + req.facts.map((f) => `- ${f}`).join('\n'),
         },
         {
           role: 'user' as const,
-          content: `Please rephrase (in the guest's language) this proposed reply naturally, staying 100% within the VERIFIED FACTS:\n"""${req.proposedReply}"""`,
+          content: `Please rephrase (in the guest's language) this proposed reply naturally, staying 100% within the VERIFIED FACTS:\n"""\n${req.proposedReply}\n"""`,
         },
       ],
     };

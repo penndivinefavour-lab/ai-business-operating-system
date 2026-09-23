@@ -5,13 +5,14 @@ import { processMessage } from '../src/core/orchestrator.ts';
 import { openDb } from '../src/db/client.ts';
 import { migrate } from '../src/db/schema.ts';
 import { seedDemoHotel } from '../src/db/seed.ts';
-import { getHotelBySlug } from '../src/db/repositories.ts';
+import { listHotels } from '../src/db/repositories.ts';
 
 openDb();
 migrate();
 
-const existing = getHotelBySlug('demo');
-const demoHotelId = existing ? existing.id : seedDemoHotel(true);
+const existing = listHotels();
+const demo = existing.find((h) => h.slug === 'demo');
+const demoHotelId = demo ? demo.id : seedDemoHotel();
 
 test('initiates booking when guest requests a room', async () => {
   const result = await processMessage({

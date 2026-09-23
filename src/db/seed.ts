@@ -57,7 +57,8 @@ export function seedDemoHotel(reset = false): number {
     db.exec('DELETE FROM reservations; DELETE FROM leads; DELETE FROM feedback; DELETE FROM followups; DELETE FROM escalations; DELETE FROM customers; DELETE FROM knowledge_items; DELETE FROM rooms; DELETE FROM hotel_users; DELETE FROM hotels;');
   }
   const existing = listHotels();
-  if (existing.length > 0) return existing[0]!.id;
+  const demo = existing.find((h) => h.slug === 'demo');
+  if (demo) return demo.id;
 
   const hotelId = createHotel({
     slug: 'demo',

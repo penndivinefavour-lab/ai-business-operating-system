@@ -8,7 +8,6 @@ import { createHotel, createRoom, listRooms, listReservations, createReservation
 openDb();
 migrate();
 
-// Create isolated test hotels (use unique slugs to avoid conflict with demo seed)
 const hotelA = createHotel({ slug: `test-a-${Date.now()}`, name: 'Test Hotel A' });
 const hotelB = createHotel({ slug: `test-b-${Date.now() + 1}`, name: 'Test Hotel B' });
 createRoom(hotelA, { number: '101', roomType: 'standard', basePrice: 25000 });

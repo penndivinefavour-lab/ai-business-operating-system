@@ -27,13 +27,13 @@ export class AnthropicProvider implements LlmProvider {
       temperature: 0.4,
       system,
       messages: [
-        ...req.history.slice(-6).map((m) => ({
+        ...req.history.slice(-8).map((m) => ({
           role: m.sender === 'guest' ? ('user' as const) : ('assistant' as const),
           content: m.body,
         })),
         {
           role: 'user' as const,
-          content: `Rephrase the following proposed reply naturally in the guest's language, staying strictly within the VERIFIED FACTS:\n"""${req.proposedReply}"""`,
+          content: `Rephrase the following proposed reply naturally in the guest's language, staying strictly within the VERIFIED FACTS:\n"""\n${req.proposedReply}\n"""`,
         },
       ],
     };
@@ -50,11 +50,11 @@ export class AnthropicProvider implements LlmProvider {
 
     if (!res.ok) {
       const text = (await res.text()).slice(0, 300);
-      throw new Error(`Anthropic ${res.status}: ${text}`);
+      throw new Error(`LLM ${res.status}: ${text}`);
     }
 
-    const json = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-    const reply = (json.content?.find((c) => c.type === 'text')?.text ?? '').trim();
+    const json = (await res.json()) as { content?: Array<{ text?: string }> };
+    const reply = json.content?.[0]?.text?.trim() ?? '';
     if (!reply) return req.proposedReply;
     return verifyReplyAgainstFacts(reply, req.facts, req.proposedReply) ? reply : req.proposedReply;
   }

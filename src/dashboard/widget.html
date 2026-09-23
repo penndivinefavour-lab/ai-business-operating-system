@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Chat — AI Receptionist</title>
+  <style>
+    /* ═══════════════════════════════════════════════════════════════════════════
+       Customer Chat Widget — Premium Hotel Branded Experience
+       ═══════════════════════════════════════════════════════════════════════════ */
+    
+    :root {
+      --cw-bg: #ffffff;
+      --cw-bg-bubble: #f0f2f5;
+      --cw-bg-bubble-ai: #e8f4f4;
+      --cw-text: #1a1d28;
+      --cw-text-muted: #6b7084;
+      --cw-accent: #2b7c7e;
+      --cw-accent-hover: #3a9a9c;
+      --cw-accent-subtle: rgba(43, 124, 126, 0.1);
+      --cw-border: rgba(0, 0, 0, 0.08);
+      --cw-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      --cw-radius: 16px;
+      --cw-radius-sm: 10px;
+      --cw-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --cw-bg: #1a1d28;
+        --cw-bg-bubble: #232735;
+        --cw-bg-bubble-ai: #1e2a2a;
+        --cw-text: #e8eaf0;
+        --cw-text-muted: #a0a4b4;
+        --cw-border: rgba(255, 255, 255, 0.08);
+        --cw-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: var(--cw-font);
+      background: transparent;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Container — works both standalone and in iframe */
+    .cw-app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      background: var(--cw-bg);
+      border-radius: var(--cw-radius);
+      overflow: hidden;
+      box-shadow: var(--cw-shadow);
+    }
+
+    /* Header */
+    .cw-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: var(--cw-accent);
+      color: white;
+      flex-shrink: 0;
+    }
+
+    .cw-header-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .cw-header-info { flex: 1; min-width: 0; }
+    .cw-header-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cw-header-role { font-size: 12px; opacity: 0.8; }
+    .cw-header-status { display: flex; align-items: center; gap: 4px; font-size: 11px; opacity: 0.9; }
+    .cw-header-dot { width: 6px; height: 6px; border-radius: 50%; background: #2ecc71; }
+
+    /* Messages */
+    .cw-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--cw-bg);
+    }
+
+    .cw-msg {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: var(--cw-radius-sm);
+      font-size: 14px;
+      line-height: 1.5;
+      animation: cw-msg-in 0.25s ease;
+      word-wrap: break-word;
+    }
+
+    .cw-msg-ai {
+      align-self: flex-start;
+      background: var(--cw-bg-bubble-ai);
+      color: var(--cw-text);
+      border-bottom-left-radius: 4px;
+    }
+
+    .cw-msg-user {
+      align-self: flex-end;
+      background: var(--cw-accent);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .cw-msg-typing {
+      align-self: flex-start;
+      background: var(--cw-bg-bubble-ai);
+      padding: 12px 16px;
+      display: flex;
+      gap: 4px;
+    }
+
+    .cw-msg-typing span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--cw-text-muted);
+      animation: cw-typing 1.4s infinite;
+    }
+
+    .cw-msg-typing span:nth-child(2) { animation-delay: 0.2s; }
+    .cw-msg-typing span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes cw-typing {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-4px); opacity: 1; }
+    }
+
+    @keyframes cw-msg-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Welcome */
+    .cw-welcome {
+      text-align: center;
+      padding: 24px 16px;
+    }
+
+    .cw-welcome-avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: var(--cw-accent-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin: 0 auto 12px;
+    }
+
+    .cw-welcome h3 { font-size: 16px; font-weight: 600; color: var(--cw-text); margin-bottom: 4px; }
+    .cw-welcome p { font-size: 13px; color: var(--cw-text-muted); }
+
+    /* Quick Actions */
+    .cw-quick-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 0 16px 12px;
+    }
+
+    .cw-quick-btn {
+      padding: 6px 12px;
+      border-radius: 16px;
+      border: 1px solid var(--cw-border);
+      background: var(--cw-bg);
+      color: var(--cw-text);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .cw-quick-btn:hover { background: var(--cw-accent-subtle); border-color: var(--cw-accent); }
+
+    /* Input */
+    .cw-input-area {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--cw-border);
+      background: var(--cw-bg);
+      flex-shrink: 0;
+    }
+
+    .cw-input {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--cw-border);
+      background: var(--cw-bg-bubble);
+      color: var(--cw-text);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .cw-input:focus { border-color: var(--cw-accent); }
+    .cw-input::placeholder { color: var(--cw-text-muted); }
+
+    .cw-send-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--cw-accent);
+      border: none;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .cw-send-btn:hover { background: var(--cw-accent-hover); }
+    .cw-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Error */
+    .cw-error {
+      text-align: center;
+      padding: 16px;
+      color: var(--cw-text-muted);
+      font-size: 13px;
+    }
+
+    .cw-error button {
+      margin-top: 8px;
+      padding: 6px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--cw-border);
+      background: var(--cw-bg);
+      color: var(--cw-text);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    /* Escalation banner */
+    .cw-escalation {
+      background: #fff3cd;
+      color: #856404;
+      padding: 10px 14px;
+      border-radius: var(--cw-radius-sm);
+      font-size: 13px;
+      text-align: center;
+      margin: 0 16px 8px;
+    }
+
+    /* Branding */
+    .cw-branding {
+      text-align: center;
+      padding: 8px;
+      font-size: 10px;
+      color: var(--cw-text-muted);
+      opacity: 0.6;
+    }
+
+    /* Scrollbar */
+    .cw-messages::-webkit-scrollbar { width: 4px; }
+    .cw-messages::-webkit-scrollbar-track { background: transparent; }
+    .cw-messages::-webkit-scrollbar-thumb { background: var(--cw-border); border-radius: 2px; }
+
+    /* Mobile */
+    @media (max-width: 480px) {
+      .cw-app { border-radius: 0; }
+      .cw-msg { max-width: 90%; }
+    }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .cw-msg, .cw-msg-typing span { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="cw-app" id="cw-app">
+    <!-- Header -->
+    <div class="cw-header" id="cw-header">
+      <div class="cw-header-avatar" id="cw-avatar">👩‍💼</div>
+      <div class="cw-header-info">
+        <div class="cw-header-name" id="cw-name">Chargement...</div>
+        <div class="cw-header-role" id="cw-role">Réceptionniste IA</div>
+      </div>
+      <div class="cw-header-status">
+        <span class="cw-header-dot"></span>
+        En ligne
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="cw-messages" id="cw-messages">
+      <div class="cw-welcome" id="cw-welcome">
+        <div class="cw-welcome-avatar" id="cw-welcome-avatar">👩‍💼</div>
+        <h3 id="cw-welcome-name">Bienvenue</h3>
+        <p id="cw-welcome-text">Comment puis-je vous aider ?</p>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="cw-quick-actions" id="cw-quick-actions">
+      <button class="cw-quick-btn" onclick="cwSendQuick('Avez-vous des chambres disponibles ?')">Disponibilité</button>
+      <button class="cw-quick-btn" onclick="cwSendQuick('Quels sont vos tarifs ?')">Tarifs</button>
+      <button class="cw-quick-btn" onclick="cwSendQuick('Où êtes-vous situé ?')">Localisation</button>
+      <button class="cw-quick-btn" onclick="cwSendQuick('Je souhaite réserver')">Réserver</button>
+    </div>
+
+    <!-- Input -->
+    <div class="cw-input-area">
+      <input type="text" class="cw-input" id="cw-input" placeholder="Tapez votre message..." />
+      <button class="cw-send-btn" id="cw-send" onclick="cwSend()">➤</button>
+    </div>
+
+    <!-- Branding -->
+    <div class="cw-branding">Propulsé par AI Business OS</div>
+  </div>
+
+  <script>
+    (function() {
+      'use strict';
+
+      // ─── Configuration ───────────────────────────────────────────────────────
+      // Widget can be configured via:
+      // 1. URL parameter: ?hotel=demo
+      // 2. window.CW_CONFIG = { hotelSlug: 'demo', ... }
+      // 3. data attribute: <div data-hotel="demo">
+      
+      function getConfig() {
+        if (window.CW_CONFIG) return window.CW_CONFIG;
+        const params = new URLSearchParams(window.location.search);
+        const slug = params.get('hotel') || params.get('slug') || 'demo';
+        return { hotelSlug: slug, apiBase: '' };
+      }
+
+      const config = getConfig();
+      const API = config.apiBase;
+
+      // ─── State ───────────────────────────────────────────────────────────────
+      let conversationId = null;
+      let employee = null;
+      let hotel = null;
+      let isSending = false;
+
+      // ─── DOM ─────────────────────────────────────────────────────────────────
+      const $ = (id) => document.getElementById(id);
+      const messagesEl = $('cw-messages');
+      const inputEl = $('cw-input');
+      const sendBtn = $('cw-send');
+
+      // ─── API Calls ───────────────────────────────────────────────────────────
+      async function fetchBranding() {
+        try {
+          const res = await fetch(`${API}/api/hotels/${config.hotelSlug}/branding`);
+          if (!res.ok) throw new Error('not found');
+          return await res.json();
+        } catch { return null; }
+      }
+
+      async function sendMessage(text) {
+        const res = await fetch(`${API}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hotelSlug: config.hotelSlug,
+            text,
+            conversationId,
+          }),
+        });
+        if (!res.ok) throw new Error('send failed');
+        return await res.json();
+      }
+
+      // ─── UI ──────────────────────────────────────────────────────────────────
+      function setHeader(emp, h) {
+        if (emp) {
+          $('cw-avatar').textContent = emp.avatar_emoji || '👩‍💼';
+          $('cw-name').textContent = emp.name || 'Assistant';
+          $('cw-role').textContent = emp.role || 'Réceptionniste IA';
+          $('cw-welcome-avatar').textContent = emp.avatar_emoji || '👩‍💼';
+          $('cw-welcome-name').textContent = emp.name || 'Bienvenue';
+          $('cw-welcome-text').textContent = emp.welcome_message || (h ? `Bienvenue à ${h.name}` : 'Comment puis-je vous aider ?');
+        }
+      }
+
+      function addMessage(text, sender) {
+        const div = document.createElement('div');
+        div.className = `cw-msg cw-msg-${sender}`;
+        div.textContent = text;
+        messagesEl.appendChild(div);
+        scrollToBottom();
+      }
+
+      function showTyping() {
+        const div = document.createElement('div');
+        div.className = 'cw-msg cw-msg-ai cw-msg-typing';
+        div.id = 'cw-typing';
+        div.innerHTML = '<span></span><span></span><span></span>';
+        messagesEl.appendChild(div);
+        scrollToBottom();
+      }
+
+      function hideTyping() {
+        const el = $('cw-typing');
+        if (el) el.remove();
+      }
+
+      function scrollToBottom() {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function showError(msg) {
+        const div = document.createElement('div');
+        div.className = 'cw-error';
+        div.innerHTML = `<p>${msg}</p><button onclick="cwRetry()">Réessayer</button>`;
+        messagesEl.appendChild(div);
+        scrollToBottom();
+      }
+
+      function showEscalation() {
+        const div = document.createElement('div');
+        div.className = 'cw-escalation';
+        div.textContent = 'Un membre de l\'équipe a été notifié et vous répondra bientôt.';
+        messagesEl.appendChild(div);
+        scrollToBottom();
+      }
+
+      // ─── Send ────────────────────────────────────────────────────────────────
+      async function send() {
+        const text = inputEl.value.trim();
+        if (!text || isSending) return;
+        
+        isSending = true;
+        inputEl.value = '';
+        sendBtn.disabled = true;
+        
+        addMessage(text, 'user');
+        showTyping();
+
+        try {
+          const result = await sendMessage(text);
+          hideTyping();
+          
+          if (result.employee) {
+            employee = result.employee;
+            setHeader(employee, hotel);
+          }
+          
+          if (result.escalation) {
+            showEscalation();
+          }
+          
+          addMessage(result.reply, 'ai');
+          conversationId = result.conversationId;
+        } catch (err) {
+          hideTyping();
+          showError('Impossible d\'envoyer le message. Vérifiez votre connexion.');
+        } finally {
+          isSending = false;
+          sendBtn.disabled = false;
+          inputEl.focus();
+        }
+      }
+
+      function sendQuick(text) {
+        inputEl.value = text;
+        send();
+      }
+
+      function retry() {
+        const errEl = messagesEl.querySelector('.cw-error');
+        if (errEl) errEl.remove();
+        send();
+      }
+
+      // ─── Init ────────────────────────────────────────────────────────────────
+      async function init() {
+        const branding = await fetchBranding();
+        if (branding && branding.ok) {
+          employee = branding.employee;
+          hotel = { name: branding.name, city: branding.city };
+          setHeader(employee, hotel);
+        }
+
+        // Enter key
+        inputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        });
+      }
+
+      // ─── Public API ──────────────────────────────────────────────────────────
+      window.cwSend = send;
+      window.cwSendQuick = sendQuick;
+      window.cwRetry = retry;
+
+      // Auto-init
+      init();
+    })();
+  </script>
+</body>
+</html>
