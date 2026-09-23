@@ -1,12 +1,20 @@
 import { getDb } from './client.ts';
 
 /**
- * Schema for the AI Digital Front Desk.
+ * Schema for the AI Business Operating System.
  *
- * Multi-tenancy: every business table carries `hotel_id`; all application
- * queries MUST filter by hotel_id (enforced by repositories + tests). This
- * matches the "pool with tenant column" SaaS pattern and maps cleanly onto
- * PostgreSQL row-level security later.
+ * Multi-tenancy: every business table carries `business_id`; all application
+ * queries MUST filter by business_id (enforced by repositories + tests).
+ * The `hotels` table is retained as a business-type config; new verticals
+ * can be added as `restaurants`, `clinics`, etc. or via a `businesses` supertable.
+ *
+ * For this phase we use a practical hybrid:
+ *   - accounts: platform-level user accounts (email/password)
+ *   - businesses: one row per tenant business (hotel, restaurant, etc.)
+ *   - business_memberships: account <-> business with role
+ *   - hotels: hotel-specific config (kept for backward compatibility, business_id FK)
+ *   - All existing tables (rooms, conversations, etc.) keep hotel_id which now
+ *     references businesses(id) via a view or direct migration.
  *
  * Schema versioning: the `schema_migrations` table tracks which DDL batches
  * have been applied. New migrations are idempotent (IF NOT EXISTS) and appended
@@ -29,9 +37,57 @@ const TABLES: Array<[string, string]> = [
     )`,
   ],
   [
+    'accounts',
+    `CREATE TABLE IF NOT EXISTS accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+  ],
+  [
+    'businesses',
+    `CREATE TABLE IF NOT EXISTS businesses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      business_type TEXT NOT NULL DEFAULT 'hotel',
+      email TEXT DEFAULT '',
+      phone TEXT DEFAULT '',
+      whatsapp_phone TEXT DEFAULT '',
+      address TEXT DEFAULT '',
+      city TEXT DEFAULT '',
+      country TEXT DEFAULT 'Cameroon',
+      currency TEXT DEFAULT 'XAF',
+      check_in_time TEXT DEFAULT '14:00',
+      check_out_time TEXT DEFAULT '12:00',
+      tax_rate REAL DEFAULT 0,
+      timezone TEXT DEFAULT 'Africa/Douala',
+      is_public INTEGER DEFAULT 0,
+      settings TEXT DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+  ],
+  [
+    'business_memberships',
+    `CREATE TABLE IF NOT EXISTS business_memberships (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      business_id INTEGER NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'owner',
+      created_at TEXT NOT NULL,
+      UNIQUE(account_id, business_id)
+    )`,
+  ],
+  [
     'hotels',
     `CREATE TABLE IF NOT EXISTS hotels (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_id INTEGER REFERENCES businesses(id) ON DELETE SET NULL,
       slug TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
@@ -103,6 +159,7 @@ const TABLES: Array<[string, string]> = [
       channel TEXT NOT NULL DEFAULT 'web',
       status TEXT NOT NULL DEFAULT 'open',
       intent_last TEXT DEFAULT '',
+      session_id TEXT DEFAULT '',
       started_at TEXT NOT NULL,
       last_message_at TEXT NOT NULL
     )`,
@@ -319,9 +376,19 @@ const INDEXES: string[] = [
   'CREATE INDEX IF NOT EXISTS idx_checklist_hotel ON onboarding_checklist(hotel_id)',
 ];
 
+const MIGRATION_FALLBACKS: string[] = [
+  // For existing DBs without session_id
+  `ALTER TABLE conversations ADD COLUMN session_id TEXT DEFAULT ''`,
+];
+
 export function migrate(): void {
   const db = getDb();
   for (const [, ddl] of TABLES) db.exec(ddl);
   for (const [, ddl] of PHASE2_TABLES) db.exec(ddl);
-  for (const idx of INDEXES) db.exec(idx);
+  for (const idx of INDEXES) {
+    try { db.exec(idx); } catch { /* ignore if column doesn't exist yet */ }
+  }
+  for (const fallback of MIGRATION_FALLBACKS) {
+    try { db.exec(fallback); } catch { /* ignore if column already exists */ }
+  }
 }

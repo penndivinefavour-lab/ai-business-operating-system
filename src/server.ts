@@ -1,10 +1,18 @@
 /**
  * AI Business Operating System — HTTP Server
  * 
- * Serves the dashboard, API, and customer chat widget.
- * Uses Node.js built-in http module — zero framework dependencies.
- * Static assets served from src/dashboard/.
- * API endpoints under /api/.
+ * Multi-tenant SaaS with:
+ * - Account registration/login (secure scrypt passwords)
+ * - Business/tenant management (hotels + future verticals)
+ * - AI Employee configuration
+ * - Customer-facing chat widget
+ * - Owner dashboard with activity
+ * 
+ * Architecture:
+ *   Public: Landing, Signup, Login, Widget (branding + chat)
+ *   Authenticated: Business workspace, Onboarding, Employee config, Conversations, Activity
+ * 
+ * All authenticated routes enforce tenant isolation via auth.ts sessions.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -12,9 +20,10 @@ import { readFile, stat } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 import { config } from './config.ts';
 import { processMessage } from './core/orchestrator.ts';
-import { seedDemoHotel, hashPassword, verifyPassword } from './db/seed.ts';
+import { seedDemoHotel } from './db/seed.ts';
 import { migrate } from './db/schema.ts';
 import { openDb, closeDb } from './db/client.ts';
+import { authenticateRequest, hashPassword, verifyPassword, createToken, destroyToken, type Session } from './auth.ts';
 import {
   listHotels,
   getHotelById,
@@ -64,12 +73,20 @@ import {
   initOnboardingChecklist,
   completeOnboardingStep,
   resetOnboardingStep,
+  createAccount,
+  findAccountByEmail,
+  findAccountById,
+  createBusiness,
+  getBusinessBySlug,
+  getBusinessById,
+  createMembership,
+  getMembership,
+  listMembershipsForAccount,
+  listMembershipsForBusiness,
 } from './db/repositories.ts';
-import { sendWhatsAppText, verifyWebhookSignature, normalizeInbound, webhookReady } from './channels/whatsapp.ts';
-import { runScenario, scenarioIds } from './demo/simulator.ts';
+import { registry } from './core/orchestrator.ts';
 import { addDays, todayIso } from './core/time.ts';
 import { slugify } from './core/format.ts';
-import { registry } from './core/orchestrator.ts';
 
 // ─── Seed database on boot ─────────────────────────────────────────────────
 
@@ -130,27 +147,6 @@ function rateLimit(key: string, max = 30, windowMs = 60_000): boolean {
   return true;
 }
 
-// ─── Auth ──────────────────────────────────────────────────────────────────
-
-interface Session { sub: string; role: 'admin' | 'staff'; hotelId: number | null; exp: number }
-const tokens = new Map<string, Session>();
-
-function makeToken(s: Session): string {
-  const t = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-  tokens.set(t, s);
-  return t;
-}
-
-async function authenticate(req: IncomingMessage): Promise<Session | null> {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = auth.slice(7);
-  const s = tokens.get(token);
-  if (!s) return null;
-  if (s.exp < Date.now()) { tokens.delete(token); return null; }
-  return s;
-}
-
 // ─── Static Files ──────────────────────────────────────────────────────────
 
 const DASHBOARD_DIR = join(process.cwd(), 'src', 'dashboard');
@@ -188,15 +184,569 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse, path: stri
   }
 }
 
-// ─── Hotel Routes ──────────────────────────────────────────────────────────
+// ─── CORS for widget ───────────────────────────────────────────────────────
 
-async function handleHotelRoute(
-  req: IncomingMessage, res: ServerResponse,
-  hotel: ReturnType<typeof getHotelById>,
-  sub: string, session: Session,
-): Promise<void> {
-  if (!hotel) { json(res, 404, bad('hotel not found', 'not_found')); return; }
-  const method = (req.method ?? 'GET').toUpperCase();
+function setCors(res: ServerResponse): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+// ─── Public Routes ─────────────────────────────────────────────────────────
+
+async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, path: string, method: string): Promise<boolean> {
+  // Health check
+  if (method === 'GET' && path === '/api/health') {
+    json(res, 200, ok({ up: true, provider: config.ai.provider, time: todayIso() }));
+    return true;
+  }
+
+  // CORS preflight
+  if (method === 'OPTIONS') {
+    setCors(res);
+    res.writeHead(204);
+    res.end();
+    return true;
+  }
+
+  // Account registration
+  if (method === 'POST' && path === '/api/signup') {
+    if (!rateLimit(`signup:${req.socket.remoteAddress ?? 'x'}`, 5, 60_000)) {
+      json(res, 429, bad('too many signup attempts', 'rate_limited'));
+      return true;
+    }
+    const body = await parseJson<{ email?: string; password?: string; name?: string; businessName?: string }>(req);
+    const email = (body.email ?? '').trim().toLowerCase();
+    const password = body.password ?? '';
+    const name = (body.name ?? '').trim();
+    const businessName = (body.businessName ?? '').trim();
+
+    if (!email || !password || !name) {
+      json(res, 400, bad('email, password, and name are required', 'bad_request'));
+      return true;
+    }
+    if (password.length < 8) {
+      json(res, 400, bad('password must be at least 8 characters', 'bad_request'));
+      return true;
+    }
+
+    const existingAccount = findAccountByEmail(email);
+    if (existingAccount) {
+      json(res, 409, bad('email already registered', 'conflict'));
+      return true;
+    }
+
+    // Create account
+    const passwordHash = hashPassword(password);
+    const accountId = createAccount(email, name, passwordHash);
+
+    // Create a business for this account
+    const bizSlug = slugify(businessName || `${name}'s Business`);
+    let finalSlug = bizSlug;
+    let n = 2;
+    while (getBusinessBySlug(finalSlug)) finalSlug = `${bizSlug}-${n++}`;
+
+    const businessId = createBusiness({
+      slug: finalSlug,
+      name: businessName || `${name}'s Business`,
+      business_type: 'hotel',
+    });
+
+    // Create legacy hotel for backward compatibility
+    const hotelId = createHotel({
+      slug: `${finalSlug}-hotel`,
+      name: businessName || `${name}'s Hotel`,
+      description: '',
+    });
+
+    // Link business to hotel
+    // TODO: Add business_id FK to hotels table migration
+
+    // Create membership
+    createMembership(accountId, businessId, 'owner');
+
+    // Initialize onboarding
+    initOnboardingChecklist(hotelId);
+    createEmployeeProfile(hotelId, {
+      name: 'Assistant',
+      role: 'Réceptionniste',
+      status: 'draft',
+      welcome_message: `Bienvenue! Je suis l'assistant(e) numérique de ${businessName || 'votre établissement'}. Comment puis-je vous aider?`,
+    });
+
+    writeAudit({
+      hotelId,
+      actorType: 'human',
+      actorId: email,
+      action: 'account_created',
+      entity: 'account',
+      entityId: accountId,
+      details: `Account created for ${email}, business: ${businessName}`,
+    });
+
+    // Create session
+    const token = createToken({
+      accountId,
+      email,
+      name,
+      role: 'owner',
+      businessId,
+      businessName: businessName || `${name}'s Business`,
+    });
+
+    json(res, 201, ok({
+      token,
+      account: { id: accountId, email, name },
+      business: { id: businessId, slug: finalSlug, name: businessName },
+      hotelId,
+    }));
+    return true;
+  }
+
+  // Login
+  if (method === 'POST' && path === '/api/login') {
+    if (!rateLimit(`login:${req.socket.remoteAddress ?? 'x'}`, 10, 60_000)) {
+      json(res, 429, bad('too many login attempts', 'rate_limited'));
+      return true;
+    }
+    const body = await parseJson<{ email?: string; password?: string }>(req);
+    const email = (body.email ?? '').trim().toLowerCase();
+    const password = body.password ?? '';
+
+    if (!email || !password) {
+      json(res, 400, bad('email and password are required', 'bad_request'));
+      return true;
+    }
+
+    // Check platform admin
+    if (email === config.admin.email.toLowerCase() && password === config.admin.password) {
+      const token = createToken({
+        accountId: 0,
+        email,
+        name: 'Platform Admin',
+        role: 'admin',
+      });
+      writeAudit({ hotelId: null, actorType: 'admin', actorId: email, action: 'login', entity: 'platform' });
+      json(res, 200, ok({ token, role: 'admin', email }));
+      return true;
+    }
+
+    // Check account
+    const account = findAccountByEmail(email);
+    if (account && verifyPassword(password, account.password_hash)) {
+      const memberships = listMembershipsForAccount(account.id);
+      const primaryMembership = memberships[0];
+      const business = primaryMembership ? getBusinessById(primaryMembership.business_id) : null;
+
+      const token = createToken({
+        accountId: account.id,
+        email: account.email,
+        name: account.name,
+        role: business ? 'owner' : 'staff',
+        businessId: business?.id,
+        businessName: business?.name,
+      });
+
+      writeAudit({
+        hotelId: null,
+        actorType: 'human',
+        actorId: email,
+        action: 'login',
+        entity: 'account',
+        entityId: account.id,
+      });
+
+      json(res, 200, ok({
+        token,
+        role: 'owner',
+        email: account.email,
+        name: account.name,
+        businessId: business?.id,
+        businessName: business?.name,
+        memberships: memberships.map(m => ({ businessId: m.business_id, role: m.role })),
+      }));
+      return true;
+    }
+
+    writeAudit({ hotelId: null, actorType: 'system', actorId: email, action: 'login_failed', entity: 'auth' });
+    json(res, 401, bad('invalid credentials', 'unauthorized'));
+    return true;
+  }
+
+  // Logout
+  if (method === 'POST' && path === '/api/logout') {
+    const session = authenticateRequest(req);
+    if (session) {
+      // Find and destroy token
+      const auth = req.headers.authorization;
+      if (auth?.startsWith('Bearer ')) {
+        destroyToken(auth.slice(7));
+      }
+      const cookie = req.headers.cookie;
+      if (cookie) {
+        const match = cookie.match(/session=([^;]+)/);
+        if (match) destroyToken(match[1]);
+      }
+    }
+    json(res, 200, ok({ loggedOut: true }));
+    return true;
+  }
+
+  // Public: Business branding (for widget)
+  const brandingMatch = path.match(/^\/api\/businesses\/([^\/]+)\/branding$/);
+  if (method === 'GET' && brandingMatch) {
+    setCors(res);
+    const slug = brandingMatch[1];
+    const business = getBusinessBySlug(slug);
+    if (!business) {
+      json(res, 404, bad('business not found', 'not_found'));
+      return true;
+    }
+
+    // Find a hotel linked to this business (for employee info)
+    // For demo, we use the legacy hotels table
+    const hotels = listHotels().filter(h => h.slug.includes(slug) || h.demo_enabled === 1);
+    const hotel = hotels[0];
+    const employee = hotel ? getEmployeeProfile(hotel.id) : null;
+
+    json(res, 200, ok({
+      slug: business.slug,
+      name: business.name,
+      description: business.description,
+      city: business.city,
+      country: business.country,
+      businessType: business.business_type,
+      employee: employee ? {
+        name: employee.name,
+        role: employee.role,
+        avatar_emoji: employee.avatar_emoji,
+        welcome_message: employee.welcome_message,
+        status: employee.status,
+        personality: employee.personality,
+        tone: employee.tone,
+        languages: employee.languages,
+      } : null,
+    }));
+    return true;
+  }
+
+  // Public: Customer chat (widget)
+  if (method === 'POST' && path === '/api/widget/chat') {
+    setCors(res);
+    if (!rateLimit(`chat:${req.socket.remoteAddress ?? 'x'}`)) {
+      json(res, 429, bad('too many requests', 'rate_limited'));
+      return true;
+    }
+
+    const body = await parseJson<{
+      businessSlug?: string;
+      hotelSlug?: string;
+      text?: string;
+      conversationId?: number;
+      sessionId?: string;
+      contact?: { phone?: string; name?: string; email?: string };
+    }>(req);
+
+    const slug = body.businessSlug || body.hotelSlug;
+    if (!slug) {
+      json(res, 400, bad('businessSlug or hotelSlug is required', 'bad_request'));
+      return true;
+    }
+
+    // Resolve to a hotel
+    let hotel = getHotelBySlug(slug);
+    if (!hotel) {
+      // Try to find a hotel for this business slug
+      const business = getBusinessBySlug(slug);
+      if (business) {
+        const hotels = listHotels();
+        hotel = hotels.find(h => h.slug.includes(slug) || h.slug.includes(business.slug));
+      }
+    }
+    // Fallback to demo hotel for demo slug
+    if (!hotel && slug === 'demo') {
+      hotel = getHotelBySlug('demo');
+    }
+
+    if (!hotel) {
+      json(res, 404, bad('business not found or not accepting messages', 'not_found'));
+      return true;
+    }
+
+    const text = (body.text ?? '').trim();
+    if (!text) {
+      json(res, 400, bad('text is required', 'bad_request'));
+      return true;
+    }
+
+    const result = await processMessage({
+      hotelId: hotel.id,
+      conversationId: body.conversationId,
+      channel: 'web',
+      text,
+      contact: body.contact,
+    });
+
+    const employee = getEmployeeProfile(hotel.id);
+
+    json(res, 200, {
+      ok: true,
+      reply: result.reply,
+      conversationId: result.conversationId,
+      intent: result.intent,
+      provider: result.provider,
+      employee: employee ? {
+        name: employee.name,
+        avatar_emoji: employee.avatar_emoji,
+        role: employee.role,
+        welcome_message: employee.welcome_message,
+      } : null,
+    });
+    return true;
+  }
+
+  // Public: Fetch conversation messages (for widget history)
+  const chatHistoryMatch = path.match(/^\/api\/widget\/conversations\/(\d+)\/messages$/);
+  if (method === 'GET' && chatHistoryMatch) {
+    setCors(res);
+    const conversationId = Number(chatHistoryMatch[1]);
+
+    // Find conversation across all hotels
+    let conv;
+    let hotel;
+    for (const h of listHotels()) {
+      const c = getConversation(h.id, conversationId);
+      if (c) { conv = c; hotel = h; break; }
+    }
+
+    if (!conv || !hotel) {
+      json(res, 404, bad('conversation not found', 'not_found'));
+      return true;
+    }
+
+    const messages = listMessages(conv.hotel_id, conversationId).map(m => ({
+      sender: m.sender,
+      body: m.body,
+      kind: m.kind,
+      at: m.created_at,
+    }));
+
+    const employee = getEmployeeProfile(hotel.id);
+    const business = getBusinessBySlug(hotel.slug);
+
+    json(res, 200, ok({
+      messages,
+      employee: employee ? { name: employee.name, avatar_emoji: employee.avatar_emoji, role: employee.role } : null,
+      business: business ? { name: business.name, slug: business.slug } : { name: hotel.name, slug: hotel.slug },
+    }));
+    return true;
+  }
+
+  return false;
+}
+
+// ─── Authenticated Routes ──────────────────────────────────────────────────
+
+async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerResponse, session: Session, path: string, method: string): Promise<boolean> {
+  
+  // Get current session info
+  if (method === 'GET' && path === '/api/me') {
+    const account = findAccountById(session.accountId);
+    const memberships = listMembershipsForAccount(session.accountId);
+    const businesses = memberships.map(m => {
+      const biz = getBusinessById(m.business_id);
+      return biz ? { id: biz.id, slug: biz.slug, name: biz.name, role: m.role, businessType: biz.business_type } : null;
+    }).filter(Boolean);
+
+    json(res, 200, ok({
+      session: {
+        accountId: session.accountId,
+        email: session.email,
+        name: session.name,
+        role: session.role,
+      },
+      currentBusiness: session.businessId ? { id: session.businessId, name: session.businessName } : null,
+      businesses,
+    }));
+    return true;
+  }
+
+  // Switch active business
+  if (method === 'POST' && path === '/api/me/business') {
+    const body = await parseJson<{ businessId?: number }>(req);
+    const businessId = body.businessId;
+    if (!businessId) {
+      json(res, 400, bad('businessId is required', 'bad_request'));
+      return true;
+    }
+    const membership = getMembership(session.accountId, businessId);
+    if (!membership) {
+      json(res, 403, bad('not a member of this business', 'forbidden'));
+      return true;
+    }
+    const business = getBusinessById(businessId);
+    if (!business) {
+      json(res, 404, bad('business not found', 'not_found'));
+      return true;
+    }
+    // Issue new token with updated business context
+    const token = createToken({
+      accountId: session.accountId,
+      email: session.email,
+      name: session.name,
+      role: membership.role as 'owner' | 'staff',
+      businessId: business.id,
+      businessName: business.name,
+    });
+    json(res, 200, ok({ token, business: { id: business.id, slug: business.slug, name: business.name } }));
+    return true;
+  }
+
+  // List businesses for current account
+  if (method === 'GET' && path === '/api/businesses') {
+    const memberships = listMembershipsForAccount(session.accountId);
+    const businesses = memberships.map(m => {
+      const biz = getBusinessById(m.business_id);
+      if (!biz) return null;
+      const hotels = listHotels().filter(h => h.slug.includes(biz.slug));
+      return {
+        id: biz.id,
+        slug: biz.slug,
+        name: biz.name,
+        description: biz.description,
+        city: biz.city,
+        country: biz.country,
+        businessType: biz.business_type,
+        isPublic: biz.is_public === 1,
+        role: m.role,
+        createdAt: biz.created_at,
+      };
+    }).filter(Boolean);
+    json(res, 200, ok({ businesses }));
+    return true;
+  }
+
+  // Create a new business
+  if (method === 'POST' && path === '/api/businesses') {
+    const body = await parseJson<{
+      name?: string;
+      slug?: string;
+      description?: string;
+      businessType?: string;
+      city?: string;
+      country?: string;
+    }>(req);
+    const name = (body.name ?? '').trim();
+    if (!name) {
+      json(res, 400, bad('name is required', 'bad_request'));
+      return true;
+    }
+    const baseSlug = slugify(body.slug || name);
+    let finalSlug = baseSlug;
+    let n = 2;
+    while (getBusinessBySlug(finalSlug)) finalSlug = `${baseSlug}-${n++}`;
+
+    const businessId = createBusiness({
+      slug: finalSlug,
+      name,
+      description: body.description ?? '',
+      business_type: body.businessType ?? 'hotel',
+      city: body.city ?? '',
+      country: body.country ?? 'Cameroon',
+    });
+
+    // Create membership
+    createMembership(session.accountId, businessId, 'owner');
+
+    // Create legacy hotel for compatibility
+    const hotelId = createHotel({
+      slug: `${finalSlug}-hotel`,
+      name,
+      description: body.description ?? '',
+      city: body.city ?? '',
+      country: body.country ?? 'Cameroon',
+    });
+
+    // Initialize onboarding + employee
+    initOnboardingChecklist(hotelId);
+    createEmployeeProfile(hotelId, {
+      name: 'Assistant',
+      role: 'Réceptionniste',
+      status: 'draft',
+      welcome_message: `Bienvenue! Je suis l'assistant(e) numérique de ${name}. Comment puis-je vous aider?`,
+    });
+
+    writeAudit({
+      hotelId,
+      actorType: 'human',
+      actorId: session.email,
+      action: 'business_created',
+      entity: 'business',
+      entityId: businessId,
+      details: `Business created: ${name}`,
+    });
+
+    json(res, 201, ok({
+      business: { id: businessId, slug: finalSlug, name, businessType: body.businessType ?? 'hotel' },
+      hotelId,
+    }));
+    return true;
+  }
+
+  // Per-business routes
+  const businessMatch = path.match(/^\/api\/businesses\/(\d+)(\/.*)?$/);
+  if (businessMatch) {
+    const businessId = Number(businessMatch[1]);
+    const membership = getMembership(session.accountId, businessId);
+    if (!membership) {
+      json(res, 403, bad('not authorized for this business', 'forbidden'));
+      return true;
+    }
+
+    const sub = businessMatch[2]?.split('?')[0] ?? '';
+
+    // Business details
+    if (method === 'GET' && sub === '') {
+      const business = getBusinessById(businessId);
+      if (!business) { json(res, 404, bad('business not found', 'not_found')); return true; }
+      json(res, 200, ok({ business }));
+      return true;
+    }
+
+    // Update business
+    if (method === 'PUT' && sub === '') {
+      const body = await parseJson<Record<string, string | number>>(req);
+      // TODO: Implement updateBusiness in repositories
+      writeAudit({ hotelId: null, actorType: 'human', actorId: session.email, action: 'business_updated', entity: 'business', entityId: businessId });
+      json(res, 200, ok({}));
+      return true;
+    }
+
+    // Find the hotel for this business (legacy)
+    const hotels = listHotels().filter(h => h.slug.includes(getBusinessById(businessId)?.slug ?? ''));
+    const hotel = hotels[0];
+    if (!hotel) {
+      json(res, 404, bad('no hotel found for this business', 'not_found'));
+      return true;
+    }
+
+    // Delegate to hotel routes
+    return await handleHotelRoutes(req, res, hotel, session, sub, method);
+  }
+
+  return false;
+}
+
+// ─── Hotel Routes (scoped to a business the user owns) ─────────────────────
+
+async function handleHotelRoutes(
+  req: IncomingMessage,
+  res: ServerResponse,
+  hotel: NonNullable<ReturnType<typeof getHotelById>>,
+  session: Session,
+  sub: string,
+  method: string,
+): Promise<boolean> {
   const hotelId = hotel.id;
 
   // Employee Profile
@@ -204,45 +754,38 @@ async function handleHotelRoute(
     const profile = getEmployeeProfile(hotelId);
     const checklist = getOnboardingChecklist(hotelId);
     json(res, 200, ok({ profile, checklist }));
-    return;
+    return true;
   }
 
   if (method === 'PUT' && sub === '/employee') {
     const body = await parseJson<Record<string, string | number>>(req);
-    updateEmployeeProfile(hotelId, {
-      name: body.name as string,
-      role: body.role as string,
-      personality: body.personality as string,
-      tone: body.tone as string,
-      languages: body.languages as string,
-      avatar_emoji: body.avatar_emoji as string,
-      welcome_message: body.welcome_message as string,
-      escalation_trigger: body.escalation_trigger as string,
-      escalation_message: body.escalation_message as string,
-      pause_on_escalation: body.pause_on_escalation as number,
-      max_response_length: body.max_response_length as number,
-      custom_greeting: body.custom_greeting as string,
-      status: body.status as any,
-      onboarding_step: body.onboarding_step as number,
-      onboarding_completed: body.onboarding_completed as number,
-    });
+    const updates: Record<string, string | number> = {};
+    const fields = ['name', 'role', 'personality', 'tone', 'languages', 'avatar_emoji',
+      'welcome_message', 'escalation_trigger', 'escalation_message', 'pause_on_escalation',
+      'max_response_length', 'custom_greeting', 'status', 'onboarding_step', 'onboarding_completed'];
+    for (const f of fields) {
+      if (body[f] !== undefined) updates[f] = body[f] as string | number;
+    }
+    updateEmployeeProfile(hotelId, updates);
     const profile = getEmployeeProfile(hotelId);
+    writeAudit({ hotelId, actorType: 'human', actorId: session.email, action: 'employee_updated', entity: 'employee', details: JSON.stringify(updates) });
     json(res, 200, ok({ profile }));
-    return;
+    return true;
   }
 
   // Business Services
   if (method === 'GET' && sub === '/services') {
     json(res, 200, ok({ services: listBusinessServices(hotelId) }));
-    return;
+    return true;
   }
 
   if (method === 'POST' && sub === '/services') {
     const body = await parseJson<{ name?: string; description?: string; category?: string; price?: number | null; price_unit?: string; available?: number; sort_order?: number }>(req);
-    if (!body.name) { json(res, 400, bad('name required', 'bad_request')); return; }
+    if (!body.name) { json(res, 400, bad('name required', 'bad_request')); return true; }
     const id = createBusinessService(hotelId, body as any);
+    writeAudit({ hotelId, actorType: 'human', actorId: session.email, action: 'service_created', entity: 'service', entityId: id, details: body.name });
     json(res, 201, ok({ id }));
-    return;
+    return true;
   }
 
   const svcMatch = sub.match(/^\/services\/(\d+)$/);
@@ -263,20 +806,20 @@ async function handleHotelRoute(
       deleteBusinessService(hotelId, id);
     }
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
   // Business Policies
   if (method === 'GET' && sub === '/policies') {
     json(res, 200, ok({ policies: listBusinessPolicies(hotelId) }));
-    return;
+    return true;
   }
 
   if (method === 'POST' && sub === '/policies') {
     const body = await parseJson<{ policy_type?: string; title?: string; content?: string; active?: number; sort_order?: number }>(req);
     if (!body.title || !body.content || !body.policy_type) {
       json(res, 400, bad('policy_type, title, content required', 'bad_request'));
-      return;
+      return true;
     }
     const id = createBusinessPolicy(hotelId, {
       policy_type: body.policy_type,
@@ -285,8 +828,9 @@ async function handleHotelRoute(
       active: body.active,
       sort_order: body.sort_order,
     });
+    writeAudit({ hotelId, actorType: 'human', actorId: session.email, action: 'policy_created', entity: 'policy', entityId: id, details: body.title });
     json(res, 201, ok({ id }));
-    return;
+    return true;
   }
 
   const polMatch = sub.match(/^\/policies\/(\d+)$/);
@@ -305,20 +849,19 @@ async function handleHotelRoute(
       deleteBusinessPolicy(hotelId, id);
     }
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
   // Onboarding Checklist
   if (method === 'GET' && sub === '/onboarding') {
     json(res, 200, ok({ checklist: getOnboardingChecklist(hotelId) }));
-    return;
+    return true;
   }
 
   if (method === 'POST' && sub === '/onboarding/complete') {
     const body = await parseJson<{ step?: string }>(req);
-    if (!body.step) { json(res, 400, bad('step required', 'bad_request')); return; }
+    if (!body.step) { json(res, 400, bad('step required', 'bad_request')); return true; }
     completeOnboardingStep(hotelId, body.step);
-    // Also update employee onboarding_step
     const current = getEmployeeProfile(hotelId);
     if (current) {
       const stepIdx = ['business_info', 'employee_identity', 'services', 'policies', 'knowledge', 'escalation', 'test', 'activate'].indexOf(body.step);
@@ -326,28 +869,29 @@ async function handleHotelRoute(
         updateEmployeeProfile(hotelId, { onboarding_step: stepIdx });
       }
     }
+    writeAudit({ hotelId, actorType: 'human', actorId: session.email, action: 'onboarding_step_completed', entity: 'onboarding', details: body.step });
     json(res, 200, ok({ checklist: getOnboardingChecklist(hotelId) }));
-    return;
+    return true;
   }
 
   if (method === 'POST' && sub === '/onboarding/reset') {
     const body = await parseJson<{ step?: string }>(req);
-    if (!body.step) { json(res, 400, bad('step required', 'bad_request')); return; }
+    if (!body.step) { json(res, 400, bad('step required', 'bad_request')); return true; }
     resetOnboardingStep(hotelId, body.step);
     json(res, 200, ok({ checklist: getOnboardingChecklist(hotelId) }));
-    return;
+    return true;
   }
 
   // Test employee (preview mode)
   if (method === 'POST' && sub === '/test-employee') {
     const body = await parseJson<{ text?: string }>(req);
     const text = (body.text ?? '').trim();
-    if (!text) { json(res, 400, bad('text required', 'bad_request')); return; }
+    if (!text) { json(res, 400, bad('text required', 'bad_request')); return true; }
     const result = await processMessage({
       hotelId,
       channel: 'web',
       text,
-      contact: { name: 'Test User', phone: '+237600000000' },
+      contact: { name: 'Test User', phone: '+237****0000' },
     });
     json(res, 200, ok({
       reply: result.reply,
@@ -355,10 +899,10 @@ async function handleHotelRoute(
       confidence: result.confidence,
       actions: result.actions.map((a) => ({ tool: a.tool, ok: a.ok, facts: a.facts })),
     }));
-    return;
+    return true;
   }
 
-  // Existing routes
+  // Overview
   if (method === 'GET' && sub === '/overview') {
     const rooms = listRooms(hotelId);
     const reservations = listReservations(hotelId, 'all');
@@ -393,31 +937,34 @@ async function handleHotelRoute(
       },
       timeframe: todayIso(),
     }));
-    return;
+    return true;
   }
 
+  // Conversations list
   if (method === 'GET' && sub === '/conversations') {
     const conversations = listConversations(hotelId).map((c) => ({
       ...c,
       messages: c.id,
     }));
     json(res, 200, ok({ conversations }));
-    return;
+    return true;
   }
 
+  // Single conversation with messages
   const convMatch = sub.match(/^\/conversations\/(\d+)(\/messages)?$/);
   if (convMatch) {
     const cid = Number(convMatch[1]);
     const conv = getConversation(hotelId, cid);
-    if (!conv) { json(res, 404, bad('conversation not found', 'not_found')); return; }
-    const messages = listMessages(hotelId, cid).map((m) => ({ sender: m.sender, body: m.body, at: m.created_at }));
+    if (!conv) { json(res, 404, bad('conversation not found', 'not_found')); return true; }
+    const messages = listMessages(hotelId, cid).map((m) => ({ sender: m.sender, body: m.body, kind: m.kind, at: m.created_at }));
     json(res, 200, ok({ conversation: conv, messages }));
-    return;
+    return true;
   }
 
+  // Reservations
   if (method === 'GET' && sub === '/reservations') {
     json(res, 200, ok({ reservations: listReservations(hotelId, 'all') }));
-    return;
+    return true;
   }
 
   const resvMatch = sub.match(/^\/reservations\/(\d+)$/);
@@ -426,17 +973,19 @@ async function handleHotelRoute(
     const body = await parseJson<{ status?: string }>(req);
     if (body.status) updateReservationStatus(hotelId, rid, body.status as any);
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
+  // Customers
   if (method === 'GET' && sub === '/customers') {
     json(res, 200, ok({ customers: listCustomers(hotelId) }));
-    return;
+    return true;
   }
 
+  // Leads
   if (method === 'GET' && sub === '/leads') {
     json(res, 200, ok({ leads: listLeads(hotelId) }));
-    return;
+    return true;
   }
 
   const leadMatch = sub.match(/^\/leads\/(\d+)$/);
@@ -445,12 +994,13 @@ async function handleHotelRoute(
     const body = await parseJson<{ status?: string }>(req);
     if (body.status) updateLeadStatus(hotelId, lid, body.status as any);
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
+  // Rooms
   if (method === 'GET' && sub === '/rooms') {
     json(res, 200, ok({ rooms: listRooms(hotelId) }));
-    return;
+    return true;
   }
 
   const roomMatch = sub.match(/^\/rooms\/(\d+)$/);
@@ -459,96 +1009,82 @@ async function handleHotelRoute(
     const body = await parseJson<{ status?: string; maintenance?: number }>(req);
     updateRoom(hotelId, rid, body as any);
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
+  // Knowledge
   if (method === 'GET' && sub === '/knowledge') {
     json(res, 200, ok({ items: listKnowledge(hotelId) }));
-    return;
+    return true;
   }
 
   if (method === 'POST' && sub === '/knowledge') {
     const body = await parseJson<{ category?: string; question?: string; answer?: string; keywords?: string }>(req);
-    if (!body.question || !body.answer) { json(res, 400, bad('question and answer required', 'bad_request')); return; }
+    if (!body.question || !body.answer) { json(res, 400, bad('question and answer required', 'bad_request')); return true; }
     createKnowledgeItem(hotelId, { category: body.category, question: body.question, answer: body.answer, keywords: body.keywords });
     json(res, 201, ok({}));
-    return;
+    return true;
   }
 
   const kbMatch = sub.match(/^\/knowledge\/(\d+)$/);
   if (kbMatch && method === 'DELETE') {
     deleteKnowledgeItem(hotelId, Number(kbMatch[1]));
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
+  // Feedback
   if (method === 'GET' && sub === '/feedback') {
     json(res, 200, ok({ feedback: listFeedback(hotelId) }));
-    return;
+    return true;
   }
 
+  // Follow-ups
   if (method === 'GET' && sub === '/followups') {
     json(res, 200, ok({ followups: listFollowups(hotelId, 'all') }));
-    return;
+    return true;
   }
 
   const folMatch = sub.match(/^\/followups\/(\d+)$/);
   if (folMatch && method === 'PATCH') {
     markFollowupDone(hotelId, Number(folMatch[1]));
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
+  // Escalations
   if (method === 'GET' && sub === '/escalations') {
     json(res, 200, ok({ escalations: listEscalations(hotelId, 'all') }));
-    return;
+    return true;
   }
 
   const escMatch = sub.match(/^\/escalations\/(\d+)$/);
   if (escMatch && method === 'PATCH') {
     markEscalationHandled(hotelId, Number(escMatch[1]));
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
-  if (method === 'GET' && sub === '/reports') {
-    const reservations = listReservations(hotelId, 'all');
-    const from = reservations.length ? reservations[reservations.length - 1].check_in : todayIso();
-    const to = reservations.length ? reservations[0].check_in : todayIso();
-    json(res, 200, ok({
-      period: { from, to },
-      reservations: reservations.filter(r => !['cancelled', 'declined'].includes(r.status)).length,
-      revenue: reservations.filter(r => ['checked_in', 'checked_out', 'confirmed'].includes(r.status)).reduce((s, r) => s + r.total_amount, 0),
-      avgRate: reservations.length ? reservations.filter(r => !['cancelled', 'declined'].includes(r.status)).reduce((s, r) => s + r.total_amount, 0) / Math.max(1, reservations.filter(r => !['cancelled', 'declined'].includes(r.status)).length) : 0,
-      rating: averageRating(hotelId),
-      feedbackCount: listFeedback(hotelId).length,
-      bySource: [
-        { source: 'ai', count: reservations.filter(r => r.source === 'ai').length },
-        { source: 'web', count: reservations.filter(r => r.source === 'web').length },
-        { source: 'whatsapp', count: reservations.filter(r => r.source === 'whatsapp').length },
-        { source: 'walkin', count: reservations.filter(r => r.source === 'walkin').length },
-      ],
-    }));
-    return;
-  }
-
+  // Audit
   if (method === 'GET' && sub === '/audit') {
     json(res, 200, ok({ entries: listAudit(hotelId, 100) }));
-    return;
+    return true;
   }
 
+  // Agents
   if (method === 'GET' && sub === '/agents') {
     json(res, 200, ok({
       agents: Array.from(registry.list().values()).map((t) => ({ id: t.name, description: t.summary, permission: t.permission })),
       tools: Array.from(registry.list().values()).map((t) => ({ name: t.name, permission: t.permission, summary: t.summary })),
       runs: listAgentRuns(hotelId, 20),
     }));
-    return;
+    return true;
   }
 
+  // Config
   if (method === 'GET' && sub === '/config') {
     json(res, 200, ok({ hotel }));
-    return;
+    return true;
   }
 
   if (method === 'PATCH' && sub === '/config') {
@@ -565,10 +1101,11 @@ async function handleHotelRoute(
       check_out_time: body.checkOutTime,
     } as any);
     json(res, 200, ok({}));
-    return;
+    return true;
   }
 
   json(res, 404, bad('unknown route', 'not_found'));
+  return true;
 }
 
 // ─── Server ────────────────────────────────────────────────────────────────
@@ -579,233 +1116,22 @@ const server = createServer(async (req, res) => {
   const method = (req.method ?? 'GET').toUpperCase();
 
   try {
-    // Public: health
-    if (method === 'GET' && path === '/api/health') {
-      json(res, 200, ok({ up: true, provider: 'demo', time: todayIso() }));
-      return;
-    }
+    // Public routes
+    const publicHandled = await handlePublicRoutes(req, res, path, method);
+    if (publicHandled) return;
 
-    // Public: login
-    if (method === 'POST' && path === '/api/login') {
-      if (!rateLimit(`login:${req.socket.remoteAddress ?? 'x'}`, 10, 60_000)) {
-        json(res, 429, bad('too many login attempts', 'rate_limited'));
-        return;
-      }
-      const body = await parseJson<{ email?: string; password?: string }>(req);
-      const email = (body.email ?? '').trim().toLowerCase();
-      const password = body.password ?? '';
-      if (email === config.admin.email.toLowerCase() && password === config.admin.password) {
-        const token = makeToken({ sub: email, role: 'admin', hotelId: null, exp: Date.now() + 12 * 3600_000 });
-        writeAudit({ hotelId: null, actorType: 'admin', actorId: email, action: 'login', entity: 'platform' });
-        json(res, 200, ok({ token, role: 'platform', email }));
-        return;
-      }
-      const staff = findUserByEmail(email);
-      if (staff && verifyPassword(password, staff.password_hash)) {
-        const token = makeToken({ sub: `${email}:${staff.id}`, role: 'staff', hotelId: staff.hotel_id, exp: Date.now() + 12 * 3600_000 });
-        writeAudit({ hotelId: staff.hotel_id, actorType: 'human', actorId: email, action: 'login', entity: 'staff' });
-        json(res, 200, ok({ token, role: 'staff', email, hotelId: staff.hotel_id, name: staff.name }));
-        return;
-      }
-      writeAudit({ hotelId: null, actorType: 'system', actorId: email, action: 'login_failed', entity: 'auth' });
-      json(res, 401, bad('invalid credentials', 'unauthorized'));
-      return;
-    }
-
-    // Public: guest web chat (uses employee identity)
-    if (method === 'POST' && path === '/api/chat') {
-      if (!rateLimit(`chat:${req.socket.remoteAddress ?? 'x'}`)) {
-        json(res, 429, bad('too many requests', 'rate_limited'));
-        return;
-      }
-      const body = await parseJson<{ hotelSlug?: string; text?: string; conversationId?: number; contact?: { phone?: string; name?: string; email?: string } }>(req);
-      const hotel = body.hotelSlug ? getHotelBySlug(body.hotelSlug) : undefined;
-      if (!hotel || hotel.demo_enabled !== 1) {
-        json(res, 404, bad('hotel not found or not public', 'not_found'));
-        return;
-      }
-      const text = (body.text ?? '').trim();
-      if (!text) { json(res, 400, bad('text is required', 'bad_request')); return; }
-      const result = await processMessage({
-        hotelId: hotel.id,
-        conversationId: body.conversationId,
-        channel: 'web',
-        text,
-        contact: body.contact,
-      });
-      const employee = getEmployeeProfile(hotel.id);
-      json(res, 200, {
-        ok: true,
-        reply: result.reply,
-        conversationId: result.conversationId,
-        intent: result.intent,
-        changed: result.changed,
-        provider: result.provider,
-        employee: employee ? { name: employee.name, avatar_emoji: employee.avatar_emoji, role: employee.role } : null,
-      });
-      return;
-    }
-
-    // Public: fetch chat messages for the web widget
-    const chatMsgsMatch = path.match(/^\/api\/chat\/(\d+)\/messages$/);
-    if (method === 'GET' && chatMsgsMatch) {
-      const conversationId = Number(chatMsgsMatch[1]);
-      let conv;
-      let hotel;
-      for (const h of listHotels()) {
-        if (h.demo_enabled !== 1) continue;
-        const c = getConversation(h.id, conversationId);
-        if (c) { conv = c; hotel = h; break; }
-      }
-      if (!conv || !hotel) { json(res, 404, bad('conversation not found', 'not_found')); return; }
-      const messages = listMessages(conv.hotel_id, conversationId).map((m) => ({ sender: m.sender, body: m.body, at: m.created_at }));
-      const employee = getEmployeeProfile(hotel.id);
-      json(res, 200, ok({
-        hotelSlug: hotel.slug,
-        hotelName: hotel.name,
-        hotelCity: hotel.city,
-        messages,
-        employee: employee ? { name: employee.name, avatar_emoji: employee.avatar_emoji, role: employee.role } : null,
-      }));
-      return;
-    }
-
-    // Public: get hotel branding (for widget customization)
-    if (method === 'GET' && path.match(/^\/api\/hotels\/[^\/]+\/branding$/)) {
-      const slug = path.split('/')[3];
-      const hotel = getHotelBySlug(slug);
-      if (!hotel) { json(res, 404, bad('hotel not found', 'not_found')); return; }
-      const employee = getEmployeeProfile(hotel.id);
-      json(res, 200, ok({
-        name: hotel.name,
-        city: hotel.city,
-        description: hotel.description,
-        employee: employee ? {
-          name: employee.name,
-          role: employee.role,
-          avatar_emoji: employee.avatar_emoji,
-          welcome_message: employee.welcome_message,
-          status: employee.status,
-        } : null,
-      }));
-      return;
-    }
-
-    // WhatsApp webhook
-    if (path === '/api/webhooks/whatsapp' && method === 'GET') {
-      const verifyToken = url.searchParams.get('hub.verify_token');
-      const challenge = url.searchParams.get('hub.challenge');
-      if (webhookReady() && verifyToken === config.whatsapp.verifyToken && challenge) {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end(challenge);
-        return;
-      }
-      json(res, 403, bad('webhook verification failed', 'forbidden'));
-      return;
-    }
-    if (path === '/api/webhooks/whatsapp' && method === 'POST') {
-      const raw = await readBody(req);
-      if (!webhookReady()) { json(res, 501, bad('whatsapp not configured', 'not_configured')); return; }
-      if (!verifyWebhookSignature(raw, req.headers['x-hub-signature-256'] as string | undefined, config.whatsapp.verifyToken)) {
-        json(res, 403, bad('invalid signature', 'forbidden'));
-        return;
-      }
-      const payload = JSON.parse(raw) as Record<string, unknown>;
-      const inbound = normalizeInbound(payload);
-      const results: Array<{ from: string; ok: boolean }> = [];
-      for (const msg of inbound) {
-        const hotels = listHotels().filter((h) => h.whatsapp_phone && msg.from !== h.whatsapp_phone);
-        const hotel = hotels[0] ?? listHotels().find((h) => h.demo_enabled === 1) ?? listHotels()[0];
-        if (!hotel) { results.push({ from: msg.from, ok: false }); continue; }
-        const result = await processMessage({ hotelId: hotel.id, channel: 'whatsapp', text: msg.text, contact: { phone: msg.from } });
-        await sendWhatsAppText(msg.from, result.reply, hotel.id);
-        results.push({ from: msg.from, ok: true });
-      }
-      json(res, 200, { ok: true, results });
-      return;
-    }
-
-    // Public: demo scenarios
-    if (method === 'GET' && path === '/api/demo/scenarios') {
-      json(res, 200, ok({ scenarios: scenarioIds() }));
-      return;
-    }
-    if (method === 'POST' && path === '/api/demo/run') {
-      const body = await parseJson<{ scenario?: string; language?: 'fr' | 'en' }>(req);
-      const hotel = listHotels().find((h) => h.demo_enabled === 1) ?? listHotels()[0];
-      if (!hotel) { json(res, 404, bad('no demo hotel', 'not_found')); return; }
-      const transcript = await runScenario(hotel.id, body.scenario ?? 'all', body.language ?? 'fr');
-      json(res, 200, ok({ hotelId: hotel.id, transcript }));
-      return;
-    }
-
-    // Static assets (no auth required)
+    // Static assets (no auth required for widget)
     if (!path.startsWith('/api/')) {
       await serveStatic(req, res, path);
       return;
     }
 
-    // Authenticated API
-    const session = await authenticate(req);
+    // Authenticated routes
+    const session = authenticateRequest(req);
     if (!session) { json(res, 401, bad('authentication required', 'unauthorized')); return; }
 
-    if (method === 'GET' && path === '/api/me') {
-      json(res, 200, ok({ session }));
-      return;
-    }
-
-    // Hotels list + onboarding
-    if (method === 'GET' && path === '/api/hotels') {
-      json(res, 200, ok({
-        hotels: listHotels().map((h) => ({
-          id: h.id, slug: h.slug, name: h.name, city: h.city,
-          demo: h.demo_enabled === 1,
-          rooms: listRooms(h.id).length,
-        })),
-      }));
-      return;
-    }
-    if (method === 'POST' && path === '/api/hotels') {
-      const body = await parseJson<Record<string, string>>(req);
-      const name = (body.name ?? '').trim();
-      if (!name) { json(res, 400, bad('name is required', 'bad_request')); return; }
-      const base = slugify(name || 'hotel');
-      let slug = base;
-      let n = 2;
-      while (getHotelBySlug(slug)) slug = `${base}-${n++}`;
-      const hotelId = createHotel({
-        slug, name, email: body.email ?? '', phone: body.phone ?? '',
-        whatsappPhone: body.whatsappPhone ?? '', address: body.address ?? '',
-        city: body.city ?? '', country: body.country ?? 'Cameroon',
-        currency: body.currency ?? 'XAF', checkInTime: body.checkInTime ?? '14:00',
-        checkOutTime: body.checkOutTime ?? '12:00',
-      });
-      initOnboardingChecklist(hotelId);
-      createEmployeeProfile(hotelId, {
-        name: 'Assistant',
-        role: 'Réceptionniste',
-        status: 'draft',
-        welcome_message: `Bienvenue! Je suis l'assistant(e) numérique de ${name}. Comment puis-je vous aider?`,
-      });
-      writeAudit({ hotelId, actorType: 'admin', actorId: session.sub, action: 'hotel_onboarded', entity: 'hotel', entityId: hotelId });
-      json(res, 201, ok({ hotelId, slug }));
-      return;
-    }
-
-    // Per-hotel routes
-    const m = path.match(/^\/api\/hotels\/(\d+)(\/.*)?$/);
-    if (m) {
-      const hotelId = Number(m[1]);
-      const hotel = getHotelById(hotelId);
-      if (!hotel) { json(res, 404, bad('hotel not found', 'not_found')); return; }
-      if (session.role === 'staff' && session.hotelId !== hotelId) {
-        json(res, 403, bad('cross-tenant access denied', 'forbidden'));
-        return;
-      }
-      const sub = m[2]?.split('?')[0] ?? '';
-      await handleHotelRoute(req, res, hotel, sub, session);
-      return;
-    }
+    const authHandled = await handleAuthenticatedRoutes(req, res, session, path, method);
+    if (authHandled) return;
 
     json(res, 404, bad('unknown route', 'not_found'));
   } catch (err) {
@@ -818,7 +1144,7 @@ const server = createServer(async (req, res) => {
 server.listen(config.port, () => {
   console.log(`AI Business Operating System running on http://localhost:${config.port}`);
   console.log(`Dashboard: http://localhost:${config.port}/`);
-  console.log(`Chat demo: http://localhost:${config.port}/chat-demo.html`);
+  console.log(`Widget: http://localhost:${config.port}/widget.html`);
 });
 
 process.on('SIGTERM', () => { closeDb(); server.close(() => process.exit(0)); });

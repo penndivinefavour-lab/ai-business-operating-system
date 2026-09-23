@@ -2,124 +2,293 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#0f1117" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Business Operating System</title>
-  <link rel="stylesheet" href="styles.css" />
+  <style>
+    :root {
+      --bg: #0f1219;
+      --bg-elevated: #1a1d28;
+      --bg-card: #1e2230;
+      --text: #e8eaed;
+      --text-muted: #9aa0b4;
+      --accent: #4a9eff;
+      --accent-hover: #6ab0ff;
+      --accent-subtle: rgba(74, 158, 255, 0.1);
+      --border: rgba(255, 255, 255, 0.06);
+      --success: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --radius: 16px;
+      --radius-sm: 10px;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.6; }
+    
+    /* Hero */
+    .hero { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; position: relative; overflow: hidden; }
+    .hero-bg { position: absolute; inset: 0; background: radial-gradient(ellipse at top right, rgba(74, 158, 255, 0.08) 0%, transparent 50%); pointer-events: none; }
+    .hero-inner { max-width: 900px; text-align: center; position: relative; z-index: 1; }
+    .hero-badge { display: inline-block; padding: 0.4rem 1rem; background: var(--accent-subtle); color: var(--accent); border-radius: 999px; font-size: 0.85rem; font-weight: 500; margin-bottom: 1.5rem; }
+    .hero h1 { font-size: clamp(2.5rem, 6vw, 4rem); font-weight: 700; line-height: 1.1; margin-bottom: 1.5rem; letter-spacing: -0.02em; }
+    .hero p { font-size: 1.25rem; color: var(--text-muted); max-width: 600px; margin: 0 auto 2.5rem; }
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn { padding: 0.85rem 2rem; border-radius: var(--radius-sm); font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s; text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; border: none; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-secondary { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--bg-elevated); }
+    
+    /* Sections */
+    .section { padding: 6rem 2rem; max-width: 1200px; margin: 0 auto; }
+    .section h2 { font-size: 2.5rem; font-weight: 700; text-align: center; margin-bottom: 3rem; letter-spacing: -0.02em; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem; transition: all 0.2s; }
+    .card:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.1); }
+    .card h3 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.75rem; }
+    .card p { color: var(--text-muted); }
+    
+    /* Auth Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+    .modal-overlay.active { display: flex; }
+    .modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 2.5rem; width: 100%; max-width: 420px; }
+    .modal h2 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .modal p.subtitle { color: var(--text-muted); margin-bottom: 2rem; }
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label { display: block; font-size: 0.9rem; font-weight: 500; margin-bottom: 0.4rem; color: var(--text-muted); }
+    .form-group input { width: 100%; padding: 0.75rem 1rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 1rem; }
+    .form-group input:focus { outline: none; border-color: var(--accent); }
+    .form-group .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.3rem; }
+    .btn-full { width: 100%; padding: 0.85rem; font-size: 1rem; }
+    .form-switch { text-align: center; margin-top: 1.5rem; color: var(--text-muted); font-size: 0.9rem; }
+    .form-switch a { color: var(--accent); cursor: pointer; }
+    .alert { padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem; font-size: 0.9rem; display: none; }
+    .alert-error { background: rgba(248, 113, 113, 0.1); color: var(--danger); border: 1px solid rgba(248, 113, 113, 0.2); }
+    .alert-success { background: rgba(52, 211, 153, 0.1); color: var(--success); border: 1px solid rgba(52, 211, 153, 0.2); }
+    
+    /* Footer */
+    footer { padding: 3rem 2rem; text-align: center; color: var(--text-muted); font-size: 0.9rem; border-top: 1px solid var(--border); }
+    
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 2.25rem; }
+      .hero p { font-size: 1.1rem; }
+      .section { padding: 4rem 1.5rem; }
+      .section h2 { font-size: 2rem; }
+    }
+  </style>
 </head>
 <body>
-  <!-- Login View -->
-  <div id="login-view" class="login-view">
-    <div class="login-card">
-      <div class="login-logo">
-        <div class="login-logo-icon">AI</div>
-      </div>
-      <h1>AI Business OS</h1>
-      <p class="login-sub">Votre employé IA, prêt à travailler</p>
-      <form id="login-form">
-        <div class="field">
-          <label>Email</label>
-          <input type="email" id="login-email" placeholder="admin@hotel.com" value="admin@hotel.com" />
-        </div>
-        <div class="field">
-          <label>Mot de passe</label>
-          <input type="password" id="login-password" placeholder="••••••••" value="admin123" />
-        </div>
-        <button type="submit" class="btn-primary btn-full">Se connecter</button>
-      </form>
-      <p class="login-hint">Démo: admin@hotel.com / admin123</p>
+
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-inner">
+    <span class="hero-badge">🤖 AI-Powered</span>
+    <h1>Your AI Employee,<br>Always On</h1>
+    <p>Give your hotel a smart, always-available assistant that handles bookings, answers questions, and serves customers — 24/7.</p>
+    <div class="hero-actions">
+      <button class="btn btn-primary" onclick="openModal('signup')">✨ Create Your AI Employee</button>
+      <button class="btn btn-secondary" onclick="openModal('login')">Sign In</button>
     </div>
   </div>
+</section>
 
-  <!-- App View -->
-  <div id="app-view" class="app-view hidden">
-    <!-- Sidebar (desktop) -->
-    <aside id="sidebar" class="sidebar">
-      <div class="sidebar-header">
-        <div class="sidebar-logo">AI</div>
-        <div class="sidebar-brand">
-          <div class="sidebar-brand-name">AI Business OS</div>
-          <div class="sidebar-brand-sub" id="sidebar-hotel">Chargement...</div>
-        </div>
-      </div>
-      <select id="hotel-select" class="hotel-select"></select>
-      <nav class="sidebar-nav">
-        <button data-view="overview" class="nav-item active"><span class="nav-icon">🏠</span> Accueil</button>
-        <button data-view="employee" class="nav-item"><span class="nav-icon">👩‍💼</span> Mon Employé IA</button>
-        <button data-view="conversations" class="nav-item"><span class="nav-icon">💬</span> Conversations</button>
-        <button data-view="bookings" class="nav-item"><span class="nav-icon">📅</span> Réservations</button>
-        <button data-view="leads" class="nav-item"><span class="nav-icon">🎯</span> Prospects</button>
-        <button data-view="knowledge" class="nav-item"><span class="nav-icon">📚</span> Connaissances</button>
-        <button data-view="services" class="nav-item"><span class="nav-icon">🛎️</span> Services</button>
-        <button data-view="reports" class="nav-item"><span class="nav-icon">📊</span> Rapports</button>
-        <button data-view="settings" class="nav-item"><span class="nav-icon">⚙️</span> Paramètres</button>
-      </nav>
-      <div class="sidebar-footer">
-        <button id="logout" class="btn-ghost btn-full">Déconnexion</button>
-      </div>
-    </aside>
-
-    <!-- Sidebar overlay (mobile) -->
-    <div id="sidebar-overlay" class="sidebar-overlay"></div>
-
-    <!-- Main Content -->
-    <main class="main">
-      <header class="topbar">
-        <button id="menu-btn" class="menu-btn">☰</button>
-        <h1 id="page-title">Accueil</h1>
-        <div class="topbar-actions">
-          <button class="btn-icon" title="Notifications">🔔</button>
-        </div>
-      </header>
-      <div id="main" class="content"></div>
-    </main>
-
-    <!-- Bottom Nav (mobile) -->
-    <nav class="bottom-nav">
-      <button data-view="overview" class="bottom-nav-item active"><span>🏠</span>Accueil</button>
-      <button data-view="employee" class="bottom-nav-item"><span>👩‍💼</span>Employé</button>
-      <button data-view="conversations" class="bottom-nav-item"><span>💬</span>Messages</button>
-      <button data-view="bookings" class="bottom-nav-item"><span>📅</span>Réservations</button>
-      <button data-view="leads" class="bottom-nav-item"><span>🎯</span>Prospects</button>
-    </nav>
-  </div>
-
-  <!-- Onboarding Modal -->
-  <div id="onboarding-modal" class="modal-overlay hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <h2 id="ob-title">Configurer votre Employé IA</h2>
-        <button class="modal-close" onclick="closeOnboarding()">✕</button>
-      </div>
-      <div class="modal-progress">
-        <div class="modal-progress-bar" id="ob-progress"></div>
-      </div>
-      <div id="ob-content" class="modal-content"></div>
-      <div class="modal-footer">
-        <button class="btn-secondary" id="ob-prev" onclick="obPrev()">Retour</button>
-        <button class="btn-primary" id="ob-next" onclick="obNext()">Continuer</button>
-      </div>
+<section class="section">
+  <h2>Why Hotel Owners Love Us</h2>
+  <div class="cards">
+    <div class="card">
+      <h3>🎯 24/7 Availability</h3>
+      <p>Your AI employee never sleeps. Guests get instant answers at 2am, on weekends, during peak season — every time.</p>
+    </div>
+    <div class="card">
+      <h3>📅 Smart Bookings</h3>
+      <p>Handles real availability checks, confirms reservations, and prevents double-bookings automatically.</p>
+    </div>
+    <div class="card">
+      <h3>🌍 Multilingual</h3>
+      <p>Communicates fluently in French, English, and more — matching your guests' preferred language.</p>
+    </div>
+    <div class="card">
+      <h3>🧠 Learns Your Business</h3>
+      <p>Configure your services, policies, and FAQs once. Your AI uses them in every conversation.</p>
+    </div>
+    <div class="card">
+      <h3>📊 Owner Dashboard</h3>
+      <p>See conversations, bookings, leads, and escalations in one place. Know what's happening anytime.</p>
+    </div>
+    <div class="card">
+      <h3>🚀 Goes Live in Minutes</h3>
+      <p>Add a single line of code to your website. Your AI employee starts serving customers immediately.</p>
     </div>
   </div>
+</section>
 
-  <!-- Test Employee Modal -->
-  <div id="test-modal" class="modal-overlay hidden">
-    <div class="modal modal-chat">
-      <div class="modal-header">
-        <h2 id="test-title">Tester votre Employé IA</h2>
-        <button class="modal-close" onclick="closeTest()">✕</button>
+<section class="section" style="text-align: center;">
+  <h2>Ready to Give Your Hotel a Smart Assistant?</h2>
+  <p style="color: var(--text-muted); margin-bottom: 2rem;">No credit card required. Set up in under 5 minutes.</p>
+  <button class="btn btn-primary" onclick="openModal('signup')">Get Started Free</button>
+</section>
+
+<footer>
+  <p>&copy; 2026 AI Business Operating System. Built for hotels, restaurants, clinics, and more.</p>
+</footer>
+
+<!-- Auth Modal -->
+<div class="modal-overlay" id="authModal" onclick="closeModalOnOverlay(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h2 id="modalTitle">Sign In</h2>
+    <p class="subtitle" id="modalSubtitle">Welcome back! Sign in to manage your AI employee.</p>
+    
+    <div class="alert alert-error" id="errorAlert"></div>
+    <div class="alert alert-success" id="successAlert"></div>
+    
+    <form id="authForm" onsubmit="handleAuth(event)">
+      <div class="form-group" id="nameGroup" style="display: none;">
+        <label for="name">Full Name</label>
+        <input type="text" id="name" placeholder="Your full name" />
       </div>
-      <div id="test-chat" class="chat-messages"></div>
-      <div class="chat-input">
-        <input type="text" id="test-input" placeholder="Tapez un message client..." />
-        <button class="btn-primary" onclick="sendTest()">Envoyer</button>
+      <div class="form-group" id="businessNameGroup" style="display: none;">
+        <label for="businessName">Business Name</label>
+        <input type="text" id="businessName" placeholder="e.g., Hotel La Paix" />
+        <div class="hint">The name of your hotel, restaurant, or business.</div>
       </div>
-    </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="you@example.com" required />
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="••••••••" required minlength="8" />
+        <div class="hint" id="passwordHint" style="display: none;">Minimum 8 characters.</div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full" id="submitBtn">Sign In</button>
+    </form>
+    
+    <p class="form-switch" id="formSwitch">
+      Don't have an account? <a onclick="switchMode('signup')">Create one</a>
+    </p>
   </div>
+</div>
 
-  <!-- Toast Container -->
-  <div id="toast-container" class="toast-container"></div>
+<script>
+let currentMode = 'login';
 
-  <script src="app.js"></script>
+function openModal(mode) {
+  currentMode = mode;
+  document.getElementById('authModal').classList.add('active');
+  updateModalUI();
+}
+
+function closeModal() {
+  document.getElementById('authModal').classList.remove('active');
+}
+
+function closeModalOnOverlay(event) {
+  if (event.target === document.getElementById('authModal')) closeModal();
+}
+
+function switchMode(mode) {
+  currentMode = mode;
+  updateModalUI();
+}
+
+function updateModalUI() {
+  const isSignup = currentMode === 'signup';
+  document.getElementById('modalTitle').textContent = isSignup ? 'Create Your Account' : 'Sign In';
+  document.getElementById('modalSubtitle').textContent = isSignup 
+    ? 'Set up your AI employee in under 5 minutes.' 
+    : 'Welcome back! Sign in to manage your AI employee.';
+  document.getElementById('nameGroup').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('businessNameGroup').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('passwordHint').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('submitBtn').textContent = isSignup ? 'Create Account' : 'Sign In';
+  document.getElementById('formSwitch').innerHTML = isSignup 
+    ? 'Already have an account? <a onclick="switchMode(\'login\')">Sign in</a>'
+    : 'Don\'t have an account? <a onclick="switchMode(\'signup\')">Create one</a>';
+  hideAlerts();
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorAlert');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('successAlert').style.display = 'none';
+}
+
+function showSuccess(msg) {
+  const el = document.getElementById('successAlert');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('errorAlert').style.display = 'none';
+}
+
+function hideAlerts() {
+  document.getElementById('errorAlert').style.display = 'none';
+  document.getElementById('successAlert').style.display = 'none';
+}
+
+async function handleAuth(event) {
+  event.preventDefault();
+  hideAlerts();
+  
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const name = document.getElementById('name').value.trim();
+  const businessName = document.getElementById('businessName').value.trim();
+  
+  const endpoint = currentMode === 'signup' ? '/api/signup' : '/api/login';
+  const body = currentMode === 'signup' 
+    ? { email, password, name, businessName }
+    : { email, password };
+  
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    
+    const data = await res.json();
+    
+    if (!data.ok) {
+      showError(data.error || 'Something went wrong. Please try again.');
+      return;
+    }
+    
+    // Store token
+    localStorage.setItem('auth_token', data.token);
+    localStorage.setItem('account', JSON.stringify(data.account || { email: data.email, name: data.name }));
+    
+    if (currentMode === 'signup') {
+      showSuccess('Account created! Redirecting to your workspace...');
+      setTimeout(() => {
+        window.location.href = '/?welcome=1';
+      }, 1000);
+    } else {
+      showSuccess('Signed in! Redirecting...');
+      setTimeout(() => {
+        window.location.href = '/?loggedin=1';
+      }, 500);
+    }
+  } catch (err) {
+    showError('Network error. Please check your connection and try again.');
+  }
+}
+
+// Auto-redirect if already logged in
+const existingToken = localStorage.getItem('auth_token');
+if (existingToken && !window.location.search.includes('logout')) {
+  // Verify token is still valid
+  fetch('/api/me', {
+    headers: { 'Authorization': 'Bearer ' + existingToken }
+  }).then(res => {
+    if (res.ok) {
+      window.location.href = '/?loggedin=1';
+    } else {
+      localStorage.removeItem('auth_token');
+    }
+  }).catch(() => {});
+}
+</script>
+
 </body>
 </html>

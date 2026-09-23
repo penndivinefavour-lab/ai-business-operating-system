@@ -26,6 +26,46 @@ import type {
 import { ONBOARDING_STEPS } from '../types.ts';
 import { nowIso } from '../core/time.ts';
 
+export interface Account {
+  id: number;
+  email: string;
+  name: string;
+  password_hash: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Business {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+  business_type: string;
+  email: string;
+  phone: string;
+  whatsapp_phone: string;
+  address: string;
+  city: string;
+  country: string;
+  currency: string;
+  check_in_time: string;
+  check_out_time: string;
+  tax_rate: number;
+  timezone: string;
+  is_public: number;
+  settings: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Membership {
+  id: number;
+  account_id: number;
+  business_id: number;
+  role: string;
+  created_at: string;
+}
+
 /**
  * Repository layer. Every query is tenant-scoped by `hotelId` (or reads the
  * tenant from the parent row). No un-scoped business queries are exported.
@@ -761,8 +801,123 @@ export function completeOnboardingStep(hotelId: number, stepKey: string): void {
 }
 
 export function resetOnboardingStep(hotelId: number, stepKey: string): void {
-  execute(
+  executeChange(
     'UPDATE onboarding_checklist SET completed = 0, completed_at = NULL WHERE hotel_id = ? AND step_key = ?',
     [hotelId, stepKey],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Accounts (platform-level auth)
+// ---------------------------------------------------------------------------
+
+export function createAccount(email: string, name: string, passwordHash: string): number {
+  return Number(execute(
+    'INSERT INTO accounts (email, password_hash, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    [email.toLowerCase(), passwordHash, name, nowIso(), nowIso()],
+  ));
+}
+
+export function findAccountByEmail(email: string): { id: number; email: string; name: string; password_hash: string } | undefined {
+  return first<{ id: number; email: string; name: string; password_hash: string }>(
+    'SELECT id, email, name, password_hash FROM accounts WHERE email = ?',
+    [email.toLowerCase()],
+  );
+}
+
+export function findAccountById(id: number): { id: number; email: string; name: string } | undefined {
+  return first<{ id: number; email: string; name: string }>(
+    'SELECT id, email, name FROM accounts WHERE id = ?',
+    [id],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Businesses (multi-tenant)
+// ---------------------------------------------------------------------------
+
+export function createBusiness(data: {
+  slug: string;
+  name: string;
+  description?: string;
+  business_type?: string;
+  email?: string;
+  phone?: string;
+  whatsapp_phone?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  currency?: string;
+  check_in_time?: string;
+  check_out_time?: string;
+  tax_rate?: number;
+  timezone?: string;
+  is_public?: number;
+}): number {
+  return Number(execute(
+    `INSERT INTO businesses (slug, name, description, business_type, email, phone, whatsapp_phone, address, city, country, currency, check_in_time, check_out_time, tax_rate, timezone, is_public, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      data.slug, data.name, data.description ?? '', data.business_type ?? 'hotel',
+      data.email ?? '', data.phone ?? '', data.whatsapp_phone ?? '',
+      data.address ?? '', data.city ?? '', data.country ?? 'Cameroon',
+      data.currency ?? 'XAF', data.check_in_time ?? '14:00', data.check_out_time ?? '12:00',
+      data.tax_rate ?? 0, data.timezone ?? 'Africa/Douala', data.is_public ?? 0,
+      nowIso(), nowIso(),
+    ],
+  ));
+}
+
+export function getBusinessBySlug(slug: string): { id: number; slug: string; name: string; description: string; business_type: string; email: string; phone: string; whatsapp_phone: string; address: string; city: string; country: string; currency: string; check_in_time: string; check_out_time: string; tax_rate: number; timezone: string; is_public: number; settings: string; created_at: string; updated_at: string } | undefined {
+  return first<{ id: number; slug: string; name: string; description: string; business_type: string; email: string; phone: string; whatsapp_phone: string; address: string; city: string; country: string; currency: string; check_in_time: string; check_out_time: string; tax_rate: number; timezone: string; is_public: number; settings: string; created_at: string; updated_at: string }>(
+    'SELECT * FROM businesses WHERE slug = ?',
+    [slug],
+  );
+}
+
+export function getBusinessById(id: number): { id: number; slug: string; name: string; description: string; business_type: string; email: string; phone: string; whatsapp_phone: string; address: string; city: string; country: string; currency: string; check_in_time: string; check_out_time: string; tax_rate: number; timezone: string; is_public: number; settings: string; created_at: string; updated_at: string } | undefined {
+  return first<{ id: number; slug: string; name: string; description: string; business_type: string; email: string; phone: string; whatsapp_phone: string; address: string; city: string; country: string; currency: string; check_in_time: string; check_out_time: string; tax_rate: number; timezone: string; is_public: number; settings: string; created_at: string; updated_at: string }>(
+    'SELECT * FROM businesses WHERE id = ?',
+    [id],
+  );
+}
+
+export function listBusinesses(): { id: number; slug: string; name: string; business_type: string }[] {
+  return all<{ id: number; slug: string; name: string; business_type: string }>(
+    'SELECT id, slug, name, business_type FROM businesses ORDER BY name',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Business Memberships (account <-> business)
+// ---------------------------------------------------------------------------
+
+export function createMembership(accountId: number, businessId: number, role: string = 'owner'): number {
+  const existing = getMembership(accountId, businessId);
+  if (existing) return existing.id;
+  return Number(executeChange(
+    'INSERT INTO business_memberships (account_id, business_id, role, created_at) VALUES (?, ?, ?, ?)',
+    [accountId, businessId, role, nowIso()],
+  ));
+}
+
+export function getMembership(accountId: number, businessId: number): { id: number; account_id: number; business_id: number; role: string } | undefined {
+  return first<{ id: number; account_id: number; business_id: number; role: string }>(
+    'SELECT id, account_id, business_id, role FROM business_memberships WHERE account_id = ? AND business_id = ?',
+    [accountId, businessId],
+  );
+}
+
+export function listMembershipsForAccount(accountId: number): { id: number; account_id: number; business_id: number; role: string }[] {
+  return all<{ id: number; account_id: number; business_id: number; role: string }>(
+    'SELECT id, account_id, business_id, role FROM business_memberships WHERE account_id = ?',
+    [accountId],
+  );
+}
+
+export function listMembershipsForBusiness(businessId: number): { id: number; account_id: number; business_id: number; role: string }[] {
+  return all<{ id: number; account_id: number; business_id: number; role: string }>(
+    'SELECT id, account_id, business_id, role FROM business_memberships WHERE business_id = ?',
+    [businessId],
   );
 }
