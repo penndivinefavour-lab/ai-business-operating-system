@@ -1,17 +1,17 @@
 // tests/availability.test.ts
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
 import { processMessage } from '../src/core/orchestrator.ts';
-import { openDb, closeDb } from '../src/db/client.ts';
+import { openDb } from '../src/db/client.ts';
 import { migrate } from '../src/db/schema.ts';
-import { seedDemoHotel, hashPassword } from '../src/db/seed.ts';
-import { getHotelBySlug, createHotel, createHotelUser } from '../src/db/repositories.ts';
+import { seedDemoHotel } from '../src/db/seed.ts';
+import { getHotelBySlug, listRooms, listKnowledge } from '../src/db/repositories.ts';
 
 let demoHotelId: number;
 
-beforeAll(() => {
+before(() => {
   openDb();
   migrate();
-  // Reset and seed
   const existing = getHotelBySlug('demo');
   if (!existing) {
     demoHotelId = seedDemoHotel(true);
@@ -27,10 +27,9 @@ describe('check availability through orchestrator', () => {
       channel: 'web',
       text: 'Do you have a room for friday?',
     });
-    expect(result.reply).toBeTruthy();
-    expect(result.intent).toBe('availability');
-    // Should either show availability or say none available (never hallucinate)
-    expect(result.provider).toBe('demo');
+    assert.ok(result.reply);
+    assert.equal(result.intent, 'availability');
+    assert.equal(result.provider, 'demo');
   });
 
   it('returns price information', async () => {
@@ -39,9 +38,9 @@ describe('check availability through orchestrator', () => {
       channel: 'web',
       text: 'How much is the executive room?',
     });
-    expect(result.reply).toBeTruthy();
+    assert.ok(result.reply);
     // Should mention actual prices from DB (38000 FCFA)
-    expect(result.reply).toContain('38');
+    assert.ok(result.reply.includes('38'), 'Should mention executive room price');
   });
 
   it('handles location query', async () => {
@@ -50,22 +49,20 @@ describe('check availability through orchestrator', () => {
       channel: 'web',
       text: 'Where are you located?',
     });
-    expect(result.reply).toBeTruthy();
+    assert.ok(result.reply);
     // Should mention actual hotel location (Douala)
-    expect(result.reply.toLowerCase()).toContain('douala');
+    assert.ok(result.reply.toLowerCase().includes('douala'), 'Should mention Douala');
   });
 });
 
 describe('demo hotel exists', () => {
-  it('has rooms seeded', async () => {
-    const { listRooms } = await import('../src/db/repositories.ts');
+  it('has rooms seeded', () => {
     const rooms = listRooms(demoHotelId);
-    expect(rooms.length).toBeGreaterThan(0);
+    assert.ok(rooms.length > 0);
   });
 
-  it('has knowledge base seeded', async () => {
-    const { listKnowledge } = await import('../src/db/repositories.ts');
+  it('has knowledge base seeded', () => {
     const items = listKnowledge(demoHotelId);
-    expect(items.length).toBeGreaterThan(5);
+    assert.ok(items.length > 5);
   });
 });

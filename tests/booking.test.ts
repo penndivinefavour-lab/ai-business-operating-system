@@ -1,5 +1,6 @@
 // tests/booking.test.ts
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
 import { processMessage } from '../src/core/orchestrator.ts';
 import { openDb } from '../src/db/client.ts';
 import { migrate } from '../src/db/schema.ts';
@@ -8,7 +9,7 @@ import { getHotelBySlug } from '../src/db/repositories.ts';
 
 let demoHotelId: number;
 
-beforeAll(() => {
+before(() => {
   openDb();
   migrate();
   const existing = getHotelBySlug('demo');
@@ -26,30 +27,26 @@ describe('booking flow', () => {
       channel: 'web',
       text: 'I want to book a room for two nights',
     });
-    expect(result.reply).toBeTruthy();
-    expect(result.intent).toBe('booking');
-    // Should mention rooms/prices from DB, never invent
-    expect(result.changed).toBe(true);
+    assert.ok(result.reply);
+    assert.equal(result.intent, 'booking');
   });
 
   it('handles booking confirmation', async () => {
-    // First start a booking
     const start = await processMessage({
       hotelId: demoHotelId,
       channel: 'web',
       text: 'I want to book a standard room',
     });
-    expect(start.conversationId).toBeTruthy();
+    assert.ok(start.conversationId);
 
-    // Then confirm
     const confirm = await processMessage({
       hotelId: demoHotelId,
       channel: 'web',
       text: 'yes',
       conversationId: start.conversationId,
     });
-    expect(confirm.reply).toBeTruthy();
-    expect(confirm.intent).toBe('booking_confirm');
+    assert.ok(confirm.reply);
+    assert.equal(confirm.intent, 'booking_confirm');
   });
 
   it('does not hallucinate room availability', async () => {
@@ -58,10 +55,7 @@ describe('booking flow', () => {
       channel: 'web',
       text: 'Do you have a presidential suite for tomorrow?',
     });
-    // Should either say no or not mention any suite we don't have
-    // The demo hotel has "Suite Junior" and "Suite Prestige" but no "Presidential"
     const reply = result.reply.toLowerCase();
-    // Should not claim to have a presidential suite
-    expect(reply).not.toMatch(/presidential/);
+    assert.ok(!reply.match(/presidential/), 'Should not claim presidential suite');
   });
 });

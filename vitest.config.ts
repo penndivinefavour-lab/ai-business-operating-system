@@ -6,13 +6,5 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
-    // Node.js built-in modules that should not be transformed
-    deps: {
-      optimizer: {
-        ssr: {
-          include: ['node:sqlite'],
-        },
-      },
-    },
   },
 });
