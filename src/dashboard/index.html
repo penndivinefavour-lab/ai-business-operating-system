@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Digital Front Desk — Tableau de bord</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="login-view" class="login-view hidden">
+    <form id="login-form" class="login-card">
+      <div class="logo">AI<span>FrontDesk</span></div>
+      <h1>Tableau de bord</h1>
+      <label>Email
+        <input type="email" id="login-email" value="admin@demo.hotel" autocomplete="username" />
+      </label>
+      <label>Mot de passe
+        <input type="password" id="login-password" value="demo-admin-123" autocomplete="current-password" />
+      </label>
+      <button type="submit" class="primary">Se connecter</button>
+      <p class="hint">Démo offline : aucun compte externe requis. Compte staff : staff@demo.hotel / demo-staff-123</p>
+    </form>
+  </div>
+
+  <div id="app-view" class="hidden">
+    <aside class="sidebar">
+      <div class="logo small">AI<span>FrontDesk</span></div>
+      <nav id="nav">
+        <button data-view="overview">Vue d'ensemble</button>
+        <button data-view="conversations">Conversations</button>
+        <button data-view="reservations">Réservations</button>
+        <button data-view="customers">Clients</button>
+        <button data-view="leads">Leads</button>
+        <button data-view="rooms">Chambres</button>
+        <button data-view="knowledge">Connaissances</button>
+        <button data-view="feedback">Avis</button>
+        <button data-view="followups">Suivis</button>
+        <button data-view="escalations">Escalades</button>
+        <button data-view="reports">Rapports</button>
+        <button data-view="agents">Agents</button>
+        <button data-view="audit">Journal</button>
+        <button data-view="demo">Démo</button>
+        <button data-view="settings">Paramètres</button>
+      </nav>
+      <div class="sidebar-foot">
+        <select id="hotel-select" class="hotel-select"></select>
+        <button id="logout" class="ghost">Déconnexion</button>
+      </div>
+    </aside>
+    <main id="main" class="main"></main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

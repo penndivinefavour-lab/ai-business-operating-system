@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local database
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# PocketBase (superseded - archived)
+pocketbase/pocketbase.exe
+pocketbase/*.db
+pocketbase/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+server.out.log
+server.err.log
+
+# Temp files
+tmp-*.json
+
+# Research artifacts (keep README)
+research/*.md
+!research/README.md

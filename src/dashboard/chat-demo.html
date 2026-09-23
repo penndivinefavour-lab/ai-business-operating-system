@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Digital Front Desk — Widget client</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <style>
+    body { background: linear-gradient(160deg, #0f1722, #16202e 60%, #12222b); min-height: 100vh; display: flex; flex-direction: column; }
+    .widget-hero { max-width: 860px; margin: 40px auto 0; padding: 0 20px; text-align: center; }
+    .widget-hero h1 { font-size: 26px; }
+    .widget-hero p { color: var(--muted); }
+    .suggestions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 16px 0 26px; }
+    .suggestions button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 20px; padding: 7px 14px; cursor: pointer; font-size: 12px; }
+    .suggestions button:hover { border-color: var(--accent); }
+    #chatbox { width: min(860px, 92vw); margin: 0 auto 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; max-height: 70vh; }
+    #feed { flex: 1; overflow: auto; padding: 16px; min-height: 200px; }
+    .bubble-guest { background: var(--accent-2); color: #fff; }
+    .bubble-ai { background: var(--panel-2); }
+    #composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+    #composer input { flex: 1; }
+    .typing { color: var(--muted); font-style: italic; font-size: 12px; padding: 4px 12px; }
+  </style>
+</head>
+<body>
+  <div class="widget-hero">
+    <div class="logo">AI<span>FrontDesk</span></div>
+    <h1>Hôtel Le Safran Douala — Réception virtuelle</h1>
+    <p>Démo 100% offline (orchestrateur déterministe, aucune clé API). Essayez les suggestions ci-dessous.</p>
+    <div class="suggestions">
+      <button onclick="send('Do you have a room for friday?')">Avez-vous une chambre vendredi ?</button>
+      <button onclick="send('How much is the executive room?')">Prix de la chambre exécutive ?</button>
+      <button onclick="send('I want to book for two nights starting friday')">Réserver 2 nuits (puis répondez "yes")</button>
+      <button onclick="send('Where are you located?')">Où êtes-vous situés ?</button>
+      <button onclick="send('Can I check in early?')">Early check-in possible ?</button>
+      <button onclick="send('I want to speak to someone')">Parler à une personne</button>
+    </div>
+  </div>
+  <div id="chatbox">
+    <div id="feed"></div>
+    <div id="typing" class="typing hidden">La réception vous répond…</div>
+    <form id="composer">
+      <input id="text" placeholder="Écrivez votre message…" autocomplete="off" />
+      <button type="submit" class="primary">Envoyer</button>
+    </form>
+  </div>
+
+  <script>
+    const feed = document.getElementById('feed');
+    const typing = document.getElementById('typing');
+    let conversationId = null;
+    const phone = '+237690000001';
+    const name = 'Visiteur widget';
+
+    function add(sender, text) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + sender;
+      div.innerHTML = `<div class="who">${sender === 'guest' ? 'vous' : 'réception'}</div>`;
+      const b = document.createElement('div');
+      b.className = 'bubble ' + (sender === 'guest' ? 'bubble-guest' : 'bubble-ai');
+      b.textContent = text;
+      div.appendChild(b);
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    }
+    add('ai', 'Bonjour 👋 Je suis la réception virtuelle de l’Hôtel Le Safran. Disponibilités, tarifs, réservation, indications… je peux vous aider.');
+
+    async function send(text) {
+      text = (text || document.getElementById('text').value).trim();
+      if (!text) return;
+      document.getElementById('text').value = '';
+      add('guest', text);
+      typing.classList.remove('hidden');
+      try {
+        const r = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hotelSlug: 'demo', text, conversationId, contact: { phone, name } }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || r.status);
+        conversationId = d.conversationId;
+        add('ai', d.reply);
+      } catch (err) {
+        add('ai', 'Désolé, une erreur est survenue : ' + err.message);
+      } finally {
+        typing.classList.add('hidden');
+      }
+    }
+
+    document.getElementById('composer').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+  </script>
+</body>
+</html>
