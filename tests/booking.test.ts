@@ -1,92 +1,67 @@
 // tests/booking.test.ts
+import { describe, it, expect, beforeAll } from 'vitest';
+import { processMessage } from '../src/core/orchestrator.ts';
+import { openDb } from '../src/db/client.ts';
+import { migrate } from '../src/db/schema.ts';
+import { seedDemoHotel } from '../src/db/seed.ts';
+import { getHotelBySlug } from '../src/db/repositories.ts';
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createBooking, cancelBooking, getCustomerBookings } from '../src/tools/booking.js';
-import type { DatabaseClient } from '../src/adapters/database/index.js';
+let demoHotelId: number;
 
-const mockDb = {
-  getOverlappingBookings: vi.fn(),
-  getRoom: vi.fn(),
-  createBooking: vi.fn(),
-  updateCustomer: vi.fn(),
-  list: vi.fn(),
-  getBookings: vi.fn(),
-  updateBooking: vi.fn(),
-} as unknown as DatabaseClient;
-
-describe('createBooking', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('creates booking when room is available', async () => {
-    mockDb.getOverlappingBookings.mockResolvedValue([]);
-    mockDb.getRoom.mockResolvedValue({ id: 'room1', tenant_id: 't1', type: 'Standard', name: 'Standard Room', description: '', price_cents: 25000, amenities: [], total_count: 3, images: [], created_at: '' });
-    mockDb.createBooking.mockResolvedValue({ id: 'booking1' });
-    mockDb.list.mockResolvedValue({ items: [{ total_stays: 0, total_spent_cents: 0 }] });
-    mockDb.updateCustomer.mockResolvedValue({});
-
-    const result = await createBooking(mockDb, {
-      tenant_id: 't1',
-      customer_id: 'cust1',
-      room_id: 'room1',
-      check_in: '2026-10-01',
-      check_out: '2026-10-02',
-      special_requests: 'Late arrival',
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.message).toContain('confirmed');
-  });
-
-  it('rejects booking when room is not available', async () => {
-    mockDb.getOverlappingBookings.mockResolvedValue([{ id: 'existing1' }]);
-
-    const result = await createBooking(mockDb, {
-      tenant_id: 't1',
-      customer_id: 'cust1',
-      room_id: 'room1',
-      check_in: '2026-10-01',
-      check_out: '2026-10-02',
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain('not available');
-  });
-
-  it('validates input schema', async () => {
-    const result = await createBooking(mockDb, { tenant_id: '', customer_id: '', room_id: '', check_in: '', check_out: '' });
-    expect(result.success).toBe(false);
-  });
+beforeAll(() => {
+  openDb();
+  migrate();
+  const existing = getHotelBySlug('demo');
+  if (!existing) {
+    demoHotelId = seedDemoHotel(true);
+  } else {
+    demoHotelId = existing.id;
+  }
 });
 
-describe('cancelBooking', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe('booking flow', () => {
+  it('initiates booking when guest requests a room', async () => {
+    const result = await processMessage({
+      hotelId: demoHotelId,
+      channel: 'web',
+      text: 'I want to book a room for two nights',
+    });
+    expect(result.reply).toBeTruthy();
+    expect(result.intent).toBe('booking');
+    // Should mention rooms/prices from DB, never invent
+    expect(result.changed).toBe(true);
   });
 
-  it('cancels existing booking', async () => {
-    mockDb.getBookings.mockResolvedValue([{ id: 'booking1', status: 'confirmed', total_cents: 25000 }]);
-    mockDb.updateBooking.mockResolvedValue({});
-
-    const result = await cancelBooking(mockDb, {
-      tenant_id: 't1',
-      booking_id: 'booking1',
+  it('handles booking confirmation', async () => {
+    // First start a booking
+    const start = await processMessage({
+      hotelId: demoHotelId,
+      channel: 'web',
+      text: 'I want to book a standard room',
     });
+    expect(start.conversationId).toBeTruthy();
 
-    expect(result.success).toBe(true);
-    expect(result.message).toContain('cancelled');
+    // Then confirm
+    const confirm = await processMessage({
+      hotelId: demoHotelId,
+      channel: 'web',
+      text: 'yes',
+      conversationId: start.conversationId,
+    });
+    expect(confirm.reply).toBeTruthy();
+    expect(confirm.intent).toBe('booking_confirm');
   });
 
-  it('returns error for non-existent booking', async () => {
-    mockDb.getBookings.mockResolvedValue([]);
-
-    const result = await cancelBooking(mockDb, {
-      tenant_id: 't1',
-      booking_id: 'nonexistent',
+  it('does not hallucinate room availability', async () => {
+    const result = await processMessage({
+      hotelId: demoHotelId,
+      channel: 'web',
+      text: 'Do you have a presidential suite for tomorrow?',
     });
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain('not found');
+    // Should either say no or not mention any suite we don't have
+    // The demo hotel has "Suite Junior" and "Suite Prestige" but no "Presidential"
+    const reply = result.reply.toLowerCase();
+    // Should not claim to have a presidential suite
+    expect(reply).not.toMatch(/presidential/);
   });
 });

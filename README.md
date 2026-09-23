@@ -1,136 +1,116 @@
 # AI Business Operating System
 
-AI-powered multi-agent SaaS platform for businesses. Hotels first.
+Multi-tenant AI SaaS platform for hotels. First vertical: Hotel Digital Front Desk.
 
-## Quick Start (Demo Mode - No External Credentials Required)
+**We are not selling dashboards. We are selling AI employees that operate businesses.**
+
+---
+
+## What It Is
+
+Each hotel gets an AI employee — e.g. "Sarah, AI Receptionist" — that communicates with customers as the hotel itself. Customers talk to Sarah through WhatsApp or website chat. Hotel owners supervise Sarah through a mobile-first control center.
+
+## Architecture
+
+| Layer | Responsibility |
+|-------|---------------|
+| **Customer Experience** | Web chat widget, WhatsApp — branded to the hotel |
+| **Business Owner Experience** | Mobile-first control center for managing the AI employee |
+| **Internal Control Plane** | Platform monitoring, multi-business oversight |
+
+## Quick Start
 
 ```bash
-cd "D:\HERMES AGENT\AI Business Operating System"
 npm install
-npm run demo
+npm run dev      # Start the API server on http://localhost:3000
+npm run demo     # Run the offline demo (no API keys needed)
+npm test         # Run tests
 ```
 
-Opens:
-- Dashboard: http://localhost:3000
-- API: http://localhost:4000
-- PocketBase: http://localhost:8090
+### Default credentials (demo only)
+- Admin: `admin@demo.hotel` / `demo-admin-123`
+- Staff: `staff@demo.hotel` / `demo-staff-123`
 
-Demo hotel "Hotel La Paix, Yaoundé" is seeded with rooms, customers, and bookings.
+## How It Works
 
-## What's Running in Demo Mode
+1. Customer sends message (web chat or WhatsApp)
+2. Message enters the **orchestrator** (src/core/orchestrator.ts)
+3. Intent is classified (rule-based, deterministic, bilingual FR/EN)
+4. Specialist agent handles the intent using **governed tools**
+5. Tools query/update the database — the LLM never invents business facts
+6. Response is sent back through the same channel
 
-- **Mock WhatsApp**: Simulates incoming messages (no Meta credentials needed)
-- **Mock AI**: Deterministic intent classification and responses (no API keys needed)
-- **PocketBase**: SQLite database with real schema and data
-- **Full workflow**: Ask about rooms, prices, bookings, feedback, escalation
+## Tech Stack
 
-## Environment Variables
-
-Copy `.env.example` to `.env.local` and configure as needed.
-
-### Required for Demo Mode
-None. Demo mode runs without any credentials.
-
-### Required for Production
-| Variable | Description | Required |
-|---|---|---|
-| `POCKETBASE_URL` | PocketBase server URL | Yes |
-| `POCKETBASE_ADMIN_EMAIL` | PocketBase admin email | Yes |
-| `POCKETBASE_ADMIN_PASSWORD` | PocketBase admin password | Yes |
-| `AI_PROVIDER` | AI provider: openrouter, anthropic, deepseek, openai | Yes (for real AI) |
-| `AI_API_KEY` | API key for selected AI provider | Yes (for real AI) |
-| `WHATSAPP_PROVIDER` | whatsapp, waha, mock | No (default: mock) |
-| `WHATSAPP_API_KEY` | WhatsApp API key | For production WhatsApp |
-| `WHATSAPP_PHONE_NUMBER_ID` | Meta phone number ID | For production WhatsApp |
-
-### Optional
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | 4000 | API server port |
-| `DASHBOARD_PORT` | 3000 | Dashboard port |
-| `DEMO_MODE` | true | Enable demo mode |
+- **Runtime:** Node.js (built-in http module — zero framework dependencies)
+- **Database:** SQLite via `node:sqlite` (built-in)
+- **AI Provider:** Abstraction layer (demo/OpenAI/Anthropic)
+- **Multi-tenancy:** tenant_id isolation on all tables
+- **Frontend:** Vanilla HTML/CSS/JS (mobile-first, no build step)
 
 ## Project Structure
 
 ```
 src/
-├── api/              # Fastify API server
-│   ├── server.ts     # Server entry point
-│   ├── routes/       # REST API routes
-│   └── hooks/        # Auth, logging hooks
-├── orchestrator/     # AI orchestrator (intent routing)
-├── tools/            # Specialist tools (deterministic)
-│   ├── knowledge.ts  # Knowledge base retrieval (RAG)
-│   ├── booking.ts    # Booking management
-│   ├── customer.ts   # Customer/CRM operations
-│   ├── lead.ts       # Lead capture
-│   ├── feedback.ts   # Feedback collection
-│   ├── escalation.ts # Human escalation
-│   └── availability.ts # Room availability
-├── adapters/         # Provider adapters
-│   ├── ai/           # AI provider abstraction
-│   ├── whatsapp/     # WhatsApp provider abstraction
-│   └── database/     # Database abstraction
-├── demo/             # Demo mode (seed + simulate)
-├── shared/           # Shared types and utilities
-└── types/            # TypeScript type definitions
-dashboard/            # Next.js management dashboard
-  ├── src/
-  │   ├── app/        # Next.js App Router pages
-  │   ├── components/ # React components
-  │   ├── lib/        # Utilities
-  │   └── styles/     # Tailwind styles
-pocketbase/           # PocketBase binary and data
-tests/                # Vitest tests
+├── core/
+│   ├── orchestrator.ts    # Message routing + AI provider abstraction
+│   ├── intents.ts         # Bilingual intent classification
+│   ├── tools/             # Governed business tools (deterministic)
+│   └── dateparse.ts       # Natural language date parsing
+├── db/
+│   ├── client.ts          # SQLite access layer
+│   ├── schema.ts          # 15-table schema
+│   ├── repositories.ts    # Tenant-scoped queries
+│   └── seed.ts            # Realistic demo data
+├── llm/
+│   ├── provider.ts        # LLM abstraction (demo/OpenAI/Anthropic)
+│   └── ...
+├── channels/
+│   └── whatsapp.ts        # WhatsApp Cloud API adapter
+├── agents/
+│   └── index.ts           # 16 specialist agent handlers
+├── demo/
+│   ├── simulator.ts       # Offline demo scenarios
+│   └── run-demo.ts        # CLI demo runner
+└── dashboard/
+    ├── index.html         # Business owner control center
+    ├── app.js             # Dashboard logic
+    ├── styles.css         # Design system
+    └── chat-demo.html     # Customer-facing web chat widget
 ```
 
-## Architecture
+## Tests
 
-See `ARCHITECTURE.md` for full system diagram.
-
-Core principle: **AI Orchestrator → Intent Classification → Specialist Tools → Audit Log**
-
-The LLM never invents business facts (availability, prices, bookings). All business operations go through deterministic tools backed by structured data.
-
-## Testing
-
+Run with:
 ```bash
-npm test              # Run all tests
-npm run test:watch    # Watch mode
+npm test
 ```
 
 Tests cover:
-- Booking conflict prevention
-- Tenant isolation
-- Customer creation/update
-- Lead capture
-- Knowledge retrieval
-- Tool permission boundaries
-- Human escalation
-- Invalid request handling
-- AI hallucination resistance (deterministic tools)
+- Availability queries
+- Booking flow
+- Tenant isolation (cross-tenant data cannot leak)
 
-## Build
+## Security
 
-```bash
-npm run typecheck     # TypeScript check
-npm run build         # Production build
-```
+- Password hashing (scrypt)
+- Rate limiting on public endpoints
+- Cross-tenant access prevention
+- No hardcoded secrets (all via .env)
+- Audit logging of all AI actions
 
-## Production Deployment
+## Roadmap
 
-1. Set up Meta WhatsApp Business Account
-2. Create PocketBase admin account
-3. Set environment variables in `.env.local`
-4. Run `npm run build && npm run start`
-5. Or use Docker: `docker compose up`
-
-See `SECURITY.md` for production security checklist.
+- [ ] Owner dashboard redesign (mobile-first, premium UI)
+- [ ] Embedded web chat widget for hotel websites
+- [ ] WhatsApp QR connection (Evolution API)
+- [ ] Voice channel
+- [ ] Additional verticals (restaurants, clinics, schools)
 
 ## License
 
-Proprietary. See `LICENSE_NOTES.md` for third-party licenses.
+MIT
 
-## Contact
+---
 
-ICON Studios - iconstudiosyde@gmail.com - +237 672 536 260
+*Built in Cameroon 🇨🇲*

@@ -1,40 +1,47 @@
 // tests/tenant-isolation.test.ts
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { checkAvailability } from '../src/tools/availability.js';
-import type { DatabaseClient } from '../src/adapters/database/index.js';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { openDb } from '../src/db/client.ts';
+import { migrate } from '../src/db/schema.ts';
+import { createHotel, createRoom, listRooms, listReservations, createReservation } from '../src/db/repositories.ts';
+import { addDays } from '../src/core/time.ts';
 
-const mockDb = {
-  getRooms: vi.fn(),
-  getOverlappingBookings: vi.fn(),
-} as unknown as DatabaseClient;
+let hotelA: number;
+let hotelB: number;
 
-describe('Tenant Isolation', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+beforeAll(() => {
+  openDb();
+  migrate();
+  hotelA = createHotel({ slug: 'iso-a', name: 'Hotel A' });
+  hotelB = createHotel({ slug: 'iso-b', name: 'Hotel B' });
+  createRoom(hotelA, { number: '101', roomType: 'standard', basePrice: 25000 });
+  createRoom(hotelA, { number: '102', roomType: 'standard', basePrice: 25000 });
+  createRoom(hotelB, { number: '201', roomType: 'suite', basePrice: 50000 });
+});
+
+describe('Tenant isolation', () => {
+  it('hotel A rooms are isolated from hotel B', () => {
+    const roomsA = listRooms(hotelA);
+    const roomsB = listRooms(hotelB);
+    expect(roomsA.length).toBe(2);
+    expect(roomsB.length).toBe(1);
+    const aIds = roomsA.map(r => r.id);
+    const bIds = roomsB.map(r => r.id);
+    expect(aIds.filter(id => bIds.includes(id)).length).toBe(0);
   });
 
-  it('never returns data from another tenant', async () => {
-    // Hotel B should not see Hotel A's rooms
-    mockDb.getRooms.mockImplementation(async (tenantId: string) => {
-      if (tenantId === 'hotel-b') return []; // Hotel B has no rooms
-      return [{ id: 'room-a', tenant_id: 'hotel-a', type: 'Standard', name: 'A Room', description: '', price_cents: 25000, amenities: [], total_count: 3, images: [], created_at: '' }];
+  it('hotel A cannot access hotel B reservations', () => {
+    createReservation(hotelB, {
+      customerId: null,
+      checkIn: '2026-10-01',
+      checkOut: '2026-10-02',
+      guests: 1,
+      roomIds: listRooms(hotelB).map(r => r.id),
+      totalAmount: 50000,
     });
-    mockDb.getOverlappingBookings.mockResolvedValue([]);
-
-    const result = await checkAvailability(mockDb, { tenant_id: 'hotel-b', date: '2026-10-01' });
-
-    // Should not leak Hotel A's room data
-    expect(result.message).toContain("don't have");
-  });
-
-  it('always filters by tenant_id in queries', async () => {
-    mockDb.getRooms.mockResolvedValue([]);
-    mockDb.getOverlappingBookings.mockResolvedValue([]);
-
-    await checkAvailability(mockDb, { tenant_id: 'specific-tenant', date: '2026-10-01' });
-
-    // Verify tenant_id was passed to query
-    expect(mockDb.getRooms).toHaveBeenCalledWith('specific-tenant');
+    const resA = listReservations(hotelA, 'all');
+    const resB = listReservations(hotelB, 'all');
+    expect(resA.length).toBe(0);
+    expect(resB.length).toBe(1);
   });
 });

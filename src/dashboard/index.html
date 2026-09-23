@@ -2,53 +2,142 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Digital Front Desk — Tableau de bord</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1116" />
+  <title>AI Business Operating System — Contrôle</title>
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="manifest" href="./manifest.json" />
 </head>
 <body>
-  <div id="login-view" class="login-view hidden">
-    <form id="login-form" class="login-card">
-      <div class="logo">AI<span>FrontDesk</span></div>
-      <h1>Tableau de bord</h1>
-      <label>Email
-        <input type="email" id="login-email" value="admin@demo.hotel" autocomplete="username" />
-      </label>
-      <label>Mot de passe
-        <input type="password" id="login-password" value="demo-admin-123" autocomplete="current-password" />
-      </label>
-      <button type="submit" class="primary">Se connecter</button>
-      <p class="hint">Démo offline : aucun compte externe requis. Compte staff : staff@demo.hotel / demo-staff-123</p>
-    </form>
+  <!-- Login Screen -->
+  <div id="login-view" class="login-screen">
+    <div class="login-card anim-fade">
+      <div class="brand">
+        <div class="brand-icon">AI</div>
+        <div class="brand-name">AI<span>FrontDesk</span></div>
+      </div>
+      <h1>Bonjour 👋</h1>
+      <p class="subtitle">Connectez-vous pour gérer votre réceptionniste IA</p>
+      <form id="login-form">
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="login-email" value="admin@demo.hotel" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label>Mot de passe</label>
+          <input type="password" id="login-password" value="demo-admin-123" autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn-primary">Se connecter</button>
+      </form>
+      <div class="login-hint">
+        Démo : <code>admin@demo.hotel</code> / <code>demo-admin-123</code><br>
+        Staff : <code>staff@demo.hotel</code> / <code>demo-staff-123</code>
+      </div>
+    </div>
   </div>
 
-  <div id="app-view" class="hidden">
-    <aside class="sidebar">
-      <div class="logo small">AI<span>FrontDesk</span></div>
-      <nav id="nav">
-        <button data-view="overview">Vue d'ensemble</button>
-        <button data-view="conversations">Conversations</button>
-        <button data-view="reservations">Réservations</button>
-        <button data-view="customers">Clients</button>
-        <button data-view="leads">Leads</button>
-        <button data-view="rooms">Chambres</button>
-        <button data-view="knowledge">Connaissances</button>
-        <button data-view="feedback">Avis</button>
-        <button data-view="followups">Suivis</button>
-        <button data-view="escalations">Escalades</button>
-        <button data-view="reports">Rapports</button>
-        <button data-view="agents">Agents</button>
-        <button data-view="audit">Journal</button>
-        <button data-view="demo">Démo</button>
-        <button data-view="settings">Paramètres</button>
+  <!-- App Shell -->
+  <div id="app-view" class="app-shell hidden">
+    <!-- Sidebar Overlay (mobile) -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-head">
+        <div class="brand">
+          <div class="brand-icon">AI</div>
+          <div class="brand-name">AI<span>FrontDesk</span></div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <button data-view="overview" class="active">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Accueil
+        </button>
+        <button data-view="conversations">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Conversations
+        </button>
+        <button data-view="leads">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+          Prospects
+        </button>
+        <button data-view="bookings">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Réservations
+        </button>
+
+        <div class="nav-section">Gestion</div>
+
+        <button data-view="customers">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Clients
+        </button>
+        <button data-view="knowledge">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          Connaissances
+        </button>
+        <button data-view="feedback">
+          <svg class="icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Avis
+        </button>
+        <button data-view="settings">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Paramètres
+        </button>
       </nav>
       <div class="sidebar-foot">
         <select id="hotel-select" class="hotel-select"></select>
-        <button id="logout" class="ghost">Déconnexion</button>
+        <button id="logout" class="logout-btn">Déconnexion</button>
       </div>
     </aside>
-    <main id="main" class="main"></main>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- Top Bar (mobile) -->
+      <div class="top-bar">
+        <button id="menu-btn" class="menu-btn">
+          <svg class="icon icon-lg" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="page-title" id="page-title">Accueil</div>
+        <div style="width:40px"></div>
+      </div>
+
+      <!-- Page Content -->
+      <main id="main" class="page">
+        <!-- Dynamic content loaded here -->
+      </main>
+
+      <!-- Bottom Nav (mobile) -->
+      <nav class="bottom-nav">
+        <div class="nav-items">
+          <button data-view="overview" class="active">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Accueil
+          </button>
+          <button data-view="conversations">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            Messages
+          </button>
+          <button data-view="leads">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/></svg>
+            Prospects
+          </button>
+          <button data-view="bookings">
+            <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Réservations
+          </button>
+          <button data-view="more">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+            Plus
+          </button>
+        </div>
+      </nav>
+    </div>
   </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
 
   <script src="./app.js"></script>
 </body>
