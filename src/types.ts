@@ -293,3 +293,71 @@ export interface LlmProvider {
   name: string;
   composeReply(req: LlmRequest): Promise<string>;
 }
+
+// ─── AI Employee & Onboarding types ────────────────────────────────────────
+
+export interface EmployeeProfile {
+  id: number;
+  hotel_id: number;
+  name: string;
+  role: string;
+  personality: string;
+  tone: string;
+  languages: string;
+  avatar_emoji: string;
+  welcome_message: string;
+  escalation_trigger: string;
+  escalation_message: string;
+  pause_on_escalation: number;
+  max_response_length: number;
+  custom_greeting: string;
+  status: 'draft' | 'active' | 'paused';
+  onboarding_step: number;
+  onboarding_completed: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BusinessService {
+  id: number;
+  hotel_id: number;
+  name: string;
+  description: string;
+  category: string;
+  price: number | null;
+  price_unit: string;
+  available: number;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface BusinessPolicy {
+  id: number;
+  hotel_id: number;
+  policy_type: string;
+  title: string;
+  content: string;
+  active: number;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface OnboardingChecklist {
+  id: number;
+  hotel_id: number;
+  step_key: string;
+  step_name: string;
+  completed: number;
+  completed_at: string | null;
+}
+
+export const ONBOARDING_STEPS = [
+  { key: 'business_info', name: 'Informations entreprise' },
+  { key: 'employee_identity', name: 'Identité employé IA' },
+  { key: 'services', name: 'Services et tarifs' },
+  { key: 'policies', name: 'Règles et politiques' },
+  { key: 'knowledge', name: 'FAQ et connaissances' },
+  { key: 'escalation', name: 'Escalade humain' },
+  { key: 'test', name: 'Tester employé' },
+  { key: 'activate', name: 'Activer' },
+] as const;

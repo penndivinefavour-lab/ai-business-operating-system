@@ -3,6 +3,7 @@ import { closeDb, openDb } from './client.ts';
 import { migrate } from './schema.ts';
 import {
   createCustomer,
+  createEmployeeProfile,
   createEscalation,
   createFeedback,
   createFollowup,
@@ -12,6 +13,7 @@ import {
   createLead,
   createReservation,
   createRoom,
+  initOnboardingChecklist,
   listHotels,
   updateReservationStatus,
   writeAudit,
@@ -160,6 +162,11 @@ export function seedDemoHotel(reset = false): number {
   createEscalation(hotelId, { customerId: cJean, reason: 'Plainte climatisation non résolue en séance — demande d\’appel du responsable.' });
 
   writeAudit({ hotelId, actorType: 'system', actorId: 'seeder', action: 'seed', entity: 'hotel', entityId: hotelId, details: 'Demo data initialized' });
+
+  // Initialize onboarding checklist
+  initOnboardingChecklist(hotelId);
+
+
 
   return hotelId;
 }

@@ -1,6 +1,8 @@
 import { all, execute, executeChange, first, scalar } from './client.ts';
 import type {
   AuditEntry,
+  BusinessPolicy,
+  BusinessService,
   Conversation,
   ConversationStatus,
   Customer,
@@ -14,11 +16,14 @@ import type {
   Lead,
   LeadStatus,
   MessageRow,
+  OnboardingChecklist,
+  EmployeeProfile,
   Reservation,
   ReservationStatus,
   Room,
   Sender,
 } from '../types.ts';
+import { ONBOARDING_STEPS } from '../types.ts';
 import { nowIso } from '../core/time.ts';
 
 /**
@@ -607,4 +612,157 @@ export function recordAgentRun(hotelId: number, conversationId: number | null, i
 export function listAgentRuns(hotelId: number, limit = 200): Array<{ id: number; hotel_id: number; conversation_id: number | null; intent: string; confidence: number; actions: string; latency_ms: number; created_at: string }> {
   return all<{ id: number; hotel_id: number; conversation_id: number | null; intent: string; confidence: number; actions: string; latency_ms: number; created_at: string }>(
     'SELECT * FROM agent_runs WHERE hotel_id = ? ORDER BY id DESC LIMIT ?', [hotelId, limit]);
+}
+
+// ---------------------------------------------------------------------------
+// AI Employee Profile
+// ---------------------------------------------------------------------------
+
+export function getEmployeeProfile(hotelId: number): EmployeeProfile | undefined {
+  return first<EmployeeProfile>('SELECT * FROM employee_profiles WHERE hotel_id = ?', [hotelId]);
+}
+
+export function createEmployeeProfile(hotelId: number, p: Partial<EmployeeProfile>): number {
+  const now = nowIso();
+  return Number(execute(
+    `INSERT INTO employee_profiles (hotel_id, name, role, personality, tone, languages, avatar_emoji, welcome_message, escalation_trigger, escalation_message, pause_on_escalation, max_response_length, custom_greeting, status, onboarding_step, onboarding_completed, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      hotelId, p.name ?? 'Assistant', p.role ?? 'Receptionist', p.personality ?? 'professional_friendly',
+      p.tone ?? 'warm_professional', p.languages ?? 'fr,en', p.avatar_emoji ?? '👩‍💼',
+      p.welcome_message ?? '', p.escalation_trigger ?? 'guest_request', p.escalation_message ?? '',
+      p.pause_on_escalation ?? 1, p.max_response_length ?? 500, p.custom_greeting ?? '',
+      p.status ?? 'draft', p.onboarding_step ?? 0, p.onboarding_completed ?? 0, now, now,
+    ],
+  ));
+}
+
+export function updateEmployeeProfile(hotelId: number, patch: Partial<EmployeeProfile>): void {
+  const allowed: Array<keyof EmployeeProfile> = [
+    'name', 'role', 'personality', 'tone', 'languages', 'avatar_emoji',
+    'welcome_message', 'escalation_trigger', 'escalation_message',
+    'pause_on_escalation', 'max_response_length', 'custom_greeting',
+    'status', 'onboarding_step', 'onboarding_completed',
+  ];
+  const sets: string[] = [];
+  const params: Array<string | number> = [];
+  for (const k of allowed) {
+    const v = patch[k];
+    if (v !== undefined) {
+      sets.push(`${k} = ?`);
+      params.push(v as string | number);
+    }
+  }
+  if (sets.length === 0) return;
+  sets.push('updated_at = ?');
+  params.push(nowIso());
+  params.push(hotelId);
+  execute(`UPDATE employee_profiles SET ${sets.join(', ')} WHERE hotel_id = ?`, params);
+}
+
+// ---------------------------------------------------------------------------
+// Business Services
+// ---------------------------------------------------------------------------
+
+export function createBusinessService(hotelId: number, s: { name: string; description?: string; category?: string; price?: number | null; price_unit?: string; available?: number; sort_order?: number }): number {
+  return Number(execute(
+    `INSERT INTO business_services (hotel_id, name, description, category, price, price_unit, available, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [hotelId, s.name, s.description ?? '', s.category ?? 'general', s.price ?? null, s.price_unit ?? 'per_unit', s.available ?? 1, s.sort_order ?? 0, nowIso()],
+  ));
+}
+
+export function listBusinessServices(hotelId: number): BusinessService[] {
+  return all<BusinessService>('SELECT * FROM business_services WHERE hotel_id = ? ORDER BY sort_order, id', [hotelId]);
+}
+
+export function updateBusinessService(hotelId: number, id: number, patch: Partial<BusinessService>): void {
+  const sets: string[] = [];
+  const params: Array<string | number | null> = [];
+  for (const k of ['name', 'description', 'category', 'price_unit', 'available', 'sort_order'] as const) {
+    const v = patch[k];
+    if (v !== undefined) {
+      sets.push(`${k} = ?`);
+      params.push(v as string | number);
+    }
+  }
+  if (patch.price !== undefined) {
+    sets.push('price = ?');
+    params.push(patch.price);
+  }
+  if (sets.length === 0) return;
+  params.push(hotelId, id);
+  execute(`UPDATE business_services SET ${sets.join(', ')} WHERE hotel_id = ? AND id = ?`, params);
+}
+
+export function deleteBusinessService(hotelId: number, id: number): void {
+  execute('DELETE FROM business_services WHERE hotel_id = ? AND id = ?', [hotelId, id]);
+}
+
+// ---------------------------------------------------------------------------
+// Business Policies
+// ---------------------------------------------------------------------------
+
+export function createBusinessPolicy(hotelId: number, p: { policy_type: string; title: string; content: string; active?: number; sort_order?: number }): number {
+  return Number(execute(
+    `INSERT INTO business_policies (hotel_id, policy_type, title, content, active, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [hotelId, p.policy_type, p.title, p.content, p.active ?? 1, p.sort_order ?? 0, nowIso()],
+  ));
+}
+
+export function listBusinessPolicies(hotelId: number): BusinessPolicy[] {
+  return all<BusinessPolicy>('SELECT * FROM business_policies WHERE hotel_id = ? AND active = 1 ORDER BY sort_order, id', [hotelId]);
+}
+
+export function updateBusinessPolicy(hotelId: number, id: number, patch: Partial<BusinessPolicy>): void {
+  const sets: string[] = [];
+  const params: Array<string | number> = [];
+  for (const k of ['policy_type', 'title', 'content', 'active', 'sort_order'] as const) {
+    const v = patch[k];
+    if (v !== undefined) {
+      sets.push(`${k} = ?`);
+      params.push(v as string | number);
+    }
+  }
+  if (sets.length === 0) return;
+  params.push(hotelId, id);
+  execute(`UPDATE business_policies SET ${sets.join(', ')} WHERE hotel_id = ? AND id = ?`, params);
+}
+
+export function deleteBusinessPolicy(hotelId: number, id: number): void {
+  execute('DELETE FROM business_policies WHERE hotel_id = ? AND id = ?', [hotelId, id]);
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding Checklist
+// ---------------------------------------------------------------------------
+
+export function getOnboardingChecklist(hotelId: number): OnboardingChecklist[] {
+  return all<OnboardingChecklist>('SELECT * FROM onboarding_checklist WHERE hotel_id = ? ORDER BY id', [hotelId]);
+}
+
+export function initOnboardingChecklist(hotelId: number): void {
+  const existing = getOnboardingChecklist(hotelId);
+  if (existing.length > 0) return;
+  for (const step of ONBOARDING_STEPS) {
+    execute(
+      'INSERT OR IGNORE INTO onboarding_checklist (hotel_id, step_key, step_name, completed) VALUES (?, ?, ?, 0)',
+      [hotelId, step.key, step.name],
+    );
+  }
+}
+
+export function completeOnboardingStep(hotelId: number, stepKey: string): void {
+  execute(
+    'UPDATE onboarding_checklist SET completed = 1, completed_at = ? WHERE hotel_id = ? AND step_key = ?',
+    [nowIso(), hotelId, stepKey],
+  );
+}
+
+export function resetOnboardingStep(hotelId: number, stepKey: string): void {
+  execute(
+    'UPDATE onboarding_checklist SET completed = 0, completed_at = NULL WHERE hotel_id = ? AND step_key = ?',
+    [hotelId, stepKey],
+  );
 }

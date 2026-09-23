@@ -1,144 +1,125 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0e1116" />
-  <title>AI Business Operating System — Contrôle</title>
-  <link rel="stylesheet" href="./styles.css" />
-  <link rel="manifest" href="./manifest.json" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f1117" />
+  <title>AI Business Operating System</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Login Screen -->
-  <div id="login-view" class="login-screen">
-    <div class="login-card anim-fade">
-      <div class="brand">
-        <div class="brand-icon">AI</div>
-        <div class="brand-name">AI<span>FrontDesk</span></div>
+  <!-- Login View -->
+  <div id="login-view" class="login-view">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="login-logo-icon">AI</div>
       </div>
-      <h1>Bonjour 👋</h1>
-      <p class="subtitle">Connectez-vous pour gérer votre réceptionniste IA</p>
+      <h1>AI Business OS</h1>
+      <p class="login-sub">Votre employé IA, prêt à travailler</p>
       <form id="login-form">
         <div class="field">
           <label>Email</label>
-          <input type="email" id="login-email" value="admin@demo.hotel" autocomplete="username" />
+          <input type="email" id="login-email" placeholder="admin@hotel.com" value="admin@hotel.com" />
         </div>
         <div class="field">
           <label>Mot de passe</label>
-          <input type="password" id="login-password" value="demo-admin-123" autocomplete="current-password" />
+          <input type="password" id="login-password" placeholder="••••••••" value="admin123" />
         </div>
-        <button type="submit" class="btn-primary">Se connecter</button>
+        <button type="submit" class="btn-primary btn-full">Se connecter</button>
       </form>
-      <div class="login-hint">
-        Démo : <code>admin@demo.hotel</code> / <code>demo-admin-123</code><br>
-        Staff : <code>staff@demo.hotel</code> / <code>demo-staff-123</code>
+      <p class="login-hint">Démo: admin@hotel.com / admin123</p>
+    </div>
+  </div>
+
+  <!-- App View -->
+  <div id="app-view" class="app-view hidden">
+    <!-- Sidebar (desktop) -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">AI</div>
+        <div class="sidebar-brand">
+          <div class="sidebar-brand-name">AI Business OS</div>
+          <div class="sidebar-brand-sub" id="sidebar-hotel">Chargement...</div>
+        </div>
+      </div>
+      <select id="hotel-select" class="hotel-select"></select>
+      <nav class="sidebar-nav">
+        <button data-view="overview" class="nav-item active"><span class="nav-icon">🏠</span> Accueil</button>
+        <button data-view="employee" class="nav-item"><span class="nav-icon">👩‍💼</span> Mon Employé IA</button>
+        <button data-view="conversations" class="nav-item"><span class="nav-icon">💬</span> Conversations</button>
+        <button data-view="bookings" class="nav-item"><span class="nav-icon">📅</span> Réservations</button>
+        <button data-view="leads" class="nav-item"><span class="nav-icon">🎯</span> Prospects</button>
+        <button data-view="knowledge" class="nav-item"><span class="nav-icon">📚</span> Connaissances</button>
+        <button data-view="services" class="nav-item"><span class="nav-icon">🛎️</span> Services</button>
+        <button data-view="reports" class="nav-item"><span class="nav-icon">📊</span> Rapports</button>
+        <button data-view="settings" class="nav-item"><span class="nav-icon">⚙️</span> Paramètres</button>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="logout" class="btn-ghost btn-full">Déconnexion</button>
+      </div>
+    </aside>
+
+    <!-- Sidebar overlay (mobile) -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Main Content -->
+    <main class="main">
+      <header class="topbar">
+        <button id="menu-btn" class="menu-btn">☰</button>
+        <h1 id="page-title">Accueil</h1>
+        <div class="topbar-actions">
+          <button class="btn-icon" title="Notifications">🔔</button>
+        </div>
+      </header>
+      <div id="main" class="content"></div>
+    </main>
+
+    <!-- Bottom Nav (mobile) -->
+    <nav class="bottom-nav">
+      <button data-view="overview" class="bottom-nav-item active"><span>🏠</span>Accueil</button>
+      <button data-view="employee" class="bottom-nav-item"><span>👩‍💼</span>Employé</button>
+      <button data-view="conversations" class="bottom-nav-item"><span>💬</span>Messages</button>
+      <button data-view="bookings" class="bottom-nav-item"><span>📅</span>Réservations</button>
+      <button data-view="leads" class="bottom-nav-item"><span>🎯</span>Prospects</button>
+    </nav>
+  </div>
+
+  <!-- Onboarding Modal -->
+  <div id="onboarding-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="ob-title">Configurer votre Employé IA</h2>
+        <button class="modal-close" onclick="closeOnboarding()">✕</button>
+      </div>
+      <div class="modal-progress">
+        <div class="modal-progress-bar" id="ob-progress"></div>
+      </div>
+      <div id="ob-content" class="modal-content"></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="ob-prev" onclick="obPrev()">Retour</button>
+        <button class="btn-primary" id="ob-next" onclick="obNext()">Continuer</button>
       </div>
     </div>
   </div>
 
-  <!-- App Shell -->
-  <div id="app-view" class="app-shell hidden">
-    <!-- Sidebar Overlay (mobile) -->
-    <div id="sidebar-overlay" class="sidebar-overlay"></div>
-
-    <!-- Sidebar -->
-    <aside id="sidebar" class="sidebar">
-      <div class="sidebar-head">
-        <div class="brand">
-          <div class="brand-icon">AI</div>
-          <div class="brand-name">AI<span>FrontDesk</span></div>
-        </div>
+  <!-- Test Employee Modal -->
+  <div id="test-modal" class="modal-overlay hidden">
+    <div class="modal modal-chat">
+      <div class="modal-header">
+        <h2 id="test-title">Tester votre Employé IA</h2>
+        <button class="modal-close" onclick="closeTest()">✕</button>
       </div>
-      <nav class="sidebar-nav">
-        <button data-view="overview" class="active">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-          Accueil
-        </button>
-        <button data-view="conversations">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          Conversations
-        </button>
-        <button data-view="leads">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-          Prospects
-        </button>
-        <button data-view="bookings">
-          <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          Réservations
-        </button>
-
-        <div class="nav-section">Gestion</div>
-
-        <button data-view="customers">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          Clients
-        </button>
-        <button data-view="knowledge">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          Connaissances
-        </button>
-        <button data-view="feedback">
-          <svg class="icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          Avis
-        </button>
-        <button data-view="settings">
-          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          Paramètres
-        </button>
-      </nav>
-      <div class="sidebar-foot">
-        <select id="hotel-select" class="hotel-select"></select>
-        <button id="logout" class="logout-btn">Déconnexion</button>
+      <div id="test-chat" class="chat-messages"></div>
+      <div class="chat-input">
+        <input type="text" id="test-input" placeholder="Tapez un message client..." />
+        <button class="btn-primary" onclick="sendTest()">Envoyer</button>
       </div>
-    </aside>
-
-    <!-- Main Content -->
-    <div class="main-content">
-      <!-- Top Bar (mobile) -->
-      <div class="top-bar">
-        <button id="menu-btn" class="menu-btn">
-          <svg class="icon icon-lg" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-        </button>
-        <div class="page-title" id="page-title">Accueil</div>
-        <div style="width:40px"></div>
-      </div>
-
-      <!-- Page Content -->
-      <main id="main" class="page">
-        <!-- Dynamic content loaded here -->
-      </main>
-
-      <!-- Bottom Nav (mobile) -->
-      <nav class="bottom-nav">
-        <div class="nav-items">
-          <button data-view="overview" class="active">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-            Accueil
-          </button>
-          <button data-view="conversations">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            Messages
-          </button>
-          <button data-view="leads">
-            <svg class="icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/></svg>
-            Prospects
-          </button>
-          <button data-view="bookings">
-            <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Réservations
-          </button>
-          <button data-view="more">
-            <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-            Plus
-          </button>
-        </div>
-      </nav>
     </div>
   </div>
 
   <!-- Toast Container -->
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="./app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
