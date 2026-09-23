@@ -8,7 +8,7 @@
 
 | Task | Status | Date |
 |------|--------|------|
-| Open-source audit (12+ projects) | ✅ | 2026-09-22 |
+| Open-source audit (15+ projects) | ✅ | 2026-09-22 |
 | Architecture design | ✅ | 2026-09-22 |
 | Database schema (15 tables) | ✅ | 2026-09-22 |
 | SQLite implementation | ✅ | 2026-09-22 |
@@ -17,82 +17,116 @@
 | Tool sandbox + permission system | ✅ | 2026-09-22 |
 | Specialist agents (16 handlers) | ✅ | 2026-09-22 |
 | LLM abstraction (demo/OpenAI/Anthropic) | ✅ | 2026-09-22 |
-| WhatsApp webhook (inactive) | ✅ | 2026-09-22 |
+| WhatsApp webhook adapter | ✅ | 2026-09-22 |
 | Admin dashboard (14 tabs) | ✅ | 2026-09-22 |
 | Customer chat widget | ✅ | 2026-09-22 |
 | Hotel seed data | ✅ | 2026-09-22 |
-| Unit tests (13 passing) | ✅ | 2026-09-22 |
-| Demo scenarios (8 scenarios) | ✅ | 2026-09-23 |
-| PDF research report | ✅ | 2026-09-23 |
-| **Full technical & product audit** | ✅ | **2026-09-23** |
+| Unit tests (10/10 passing) | ✅ | 2026-09-23 |
+| GitHub repo created | ✅ | 2026-09-23 |
+| **Premium owner dashboard redesign** | ✅ | **2026-09-23** |
+| **Cleaned dead PocketBase/Fastify code** | ✅ | **2026-09-23** |
+| **Rebuilt server.ts from preserved core** | ✅ | **2026-09-23** |
+| **Added DESIGN_SYSTEM.md** | ✅ | **2026-09-23** |
 
 ---
 
 ## Current State
 
-### Working (Port 3000 — SQLite + Node http)
-- All 8 demo scenarios produce correct, distinct responses
-- 13/13 unit tests passing
-- Admin dashboard with 14 tabs
+### Working (Port 3000 — Node.js http + SQLite)
+- 10/10 unit tests passing
+- All intents return correct, distinct responses (availability, price, location, booking, escalation, feedback)
+- Admin dashboard with premium mobile-first UI:
+  - Desktop: sidebar navigation + AI Employee card + activity feed
+  - Mobile: bottom nav + responsive cards
 - Customer chat widget (standalone page)
-- Booking workflow (with one known bug in confirmation)
+- Booking workflow (request → confirm → cancel)
 - Knowledge base search
 - Escalation and followup creation
 - Audit logging
 
-### Not Working / Buggy (Port 4000 — PocketBase + Fastify)
-- All demo scenarios return same response (bug)
-- Should be archived or deleted
-
-### Not Started
-- Production deployment
-- Voice channel
-- Automated followup execution
-- Email channel (code exists, not wired)
-- Mobile-responsive admin
+### GitHub Repository
+- URL: https://github.com/penndivinefavour-lab/ai-business-operating-system
+- Branch: main
+- Commits: 4
 
 ---
 
-## Blockers
+## Architecture (Current)
 
-| Blocker | Impact | Resolution |
-|---------|--------|------------|
-| No WhatsApp credentials | Can't receive real WhatsApp messages | Use Evolution API for QR-based connection |
-| No production deployment | Can't serve real customers | Docker + reverse proxy needed |
-| Booking confirmation bug | Demo booking flow breaks | 1-day fix |
+```
+src/
+├── core/
+│   ├── orchestrator.ts    # Message routing + AI provider abstraction
+│   ├── intents.ts         # Bilingual intent classification (18 intents)
+│   ├── tools/
+│   │   ├── catalog.ts     # Governed business tools (deterministic)
+│   │   └── registry.ts    # Tool sandbox + permission system
+│   ├── dateparse.ts       # Natural language date parsing
+│   ├── format.ts          # Money, phone, slug formatting
+│   └── time.ts            # Time utilities
+├── db/
+│   ├── client.ts          # SQLite access layer (node:sqlite)
+│   ├── schema.ts          # 15-table schema
+│   ├── repositories.ts    # Tenant-scoped queries
+│   └── seed.ts            # Realistic demo data
+├── llm/
+│   ├── provider.ts        # LLM abstraction (demo/OpenAI/Anthropic)
+│   ├── demo.ts            # Offline deterministic responses
+│   ├── guard.ts           # Response validation
+│   ├── anthropic.ts       # Anthropic adapter
+│   └── openai-compatible.ts # OpenAI-compatible adapter
+├── channels/
+│   └── whatsapp.ts        # WhatsApp Cloud API adapter
+├── agents/
+│   └── index.ts           # 16 specialist agent handlers
+├── demo/
+│   ├── simulator.ts       # Offline demo scenarios
+│   └── run-demo.ts        # CLI demo runner
+├── dashboard/
+│   ├── index.html         # Business owner control center
+│   ├── app.js             # Dashboard logic
+│   ├── styles.css         # Design system
+│   └── chat-demo.html     # Customer-facing web chat widget
+├── server.ts              # HTTP server (built-in http module)
+├── config.ts              # Configuration
+└── types.ts               # Domain types
+```
 
 ---
 
-## Next Steps (Recommended)
+## Running Locally
 
-### This Week
-1. Archive/delete port 4000 system
-2. Fix booking confirmation bug
-3. Create embeddable web chat widget
-4. Build hotel onboarding wizard
+```bash
+# Install
+npm install
 
-### Next Week
-5. Redesign manager dashboard (mobile-friendly)
-6. Integrate Evolution API for WhatsApp QR
-7. Add integration tests
+# Start server
+npm run dev
 
-### Next Month
-8. Integrate Chatwoot for omnichannel inbox
-9. Build production deployment
-10. Onboard first pilot hotel
+# Run tests
+npm test
+
+# Run demo
+npm run demo
+```
+
+Server: http://localhost:3000
+Chat widget: http://localhost:3000/chat-demo.html
+Demo login: admin@demo.hotel / demo-admin-123
 
 ---
 
-## Key Decisions Made
+## Design System
 
-| Decision | Rationale |
-|----------|-----------|
-| SQLite for MVP | Zero-config, fast, portable |
-| Node.js built-in http | No framework dependency |
-| Rule-based intent classification | Deterministic, no LLM needed for routing |
-| Hotel identity in responses | Customers talk to "Hôtel Le Safran" not "AI" |
-| Tool sandbox with permissions | Prevent AI from dangerous operations |
-| MIT/Apache 2.0 only | No copyleft in core platform |
+Documented in DESIGN_SYSTEM.md.
+
+Key principles:
+- Mobile-first (bottom nav on phone, sidebar on desktop)
+- Deep teal accent (#2b7c7e)
+- Dark premium surface
+- Calm, trustworthy, commercially credible
+- Animations communicate state (message arrival, thinking, response)
+- Accessible contrast, touch targets ≥44px
 
 ---
 
@@ -101,9 +135,54 @@
 | Report | Location |
 |--------|----------|
 | Current State Audit | `CURRENT_STATE_AUDIT.md` |
-| Open-Source Next Research | `OPEN_SOURCE_NEXT_RESEARCH.md` |
+| Open-Source Research | `OPEN_SOURCE_AUDIT.md` |
 | Integration Options | `INTEGRATION_OPTIONS.md` |
-| PDF Research Report | `RESEARCH_REPORT.pdf` |
+| Design System | `DESIGN_SYSTEM.md` |
+
+---
+
+## What's Next (Recommended)
+
+### This Week
+1. **Embedded chat widget** — iframe/embed code for hotel websites
+2. **Hotel onboarding wizard** — let hotels configure themselves
+3. **Production deployment** — Docker + reverse proxy
+
+### Next Week
+4. **Integrate Evolution API** — WhatsApp QR (no Meta Business needed)
+5. **Add integration tests** — verify full booking flow end-to-end
+
+### Next Month
+6. **Integrate Chatwoot** — omnichannel inbox (WhatsApp, email, web chat)
+7. **Voice channel** — basic voice receptionist
+
+---
+
+## Key Technical Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| SQLite for MVP | Zero-config, fast, portable |
+| Node.js built-in http | No framework dependency, zero config |
+| Rule-based intent classification | Deterministic, no LLM needed for routing |
+| Hotel identity in responses | Customers talk to "Sarah at Hotel Le Safran" not "AI" |
+| Tool sandbox with permissions | Prevent AI from dangerous operations |
+| MIT/Apache 2.0 only | No copyleft in core platform |
+| Node:test instead of vitest | Works with node:sqlite built-in |
+
+---
+
+## Tests
+
+```bash
+npm test
+```
+
+**Result: 10/10 passing**
+- Tenant isolation (2 tests): cross-tenant data cannot leak
+- Availability (3 tests): correct responses from DB, not hallucinated
+- Booking (3 tests): full booking flow works
+- Demo hotel (2 tests): rooms and knowledge base seeded
 
 ---
 
