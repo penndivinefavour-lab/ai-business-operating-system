@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --experimental-strip-types src/server.ts",
     "demo": "node --experimental-strip-types src/demo/run-demo.ts",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts",
     "seed": "node --experimental-strip-types src/db/seed.ts"
   },
   "devDependencies": {

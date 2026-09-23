@@ -1,116 +1,100 @@
 # AI Business Operating System
 
-Multi-tenant AI SaaS platform for hotels. First vertical: Hotel Digital Front Desk.
-
-**We are not selling dashboards. We are selling AI employees that operate businesses.**
-
----
-
-## What It Is
-
-Each hotel gets an AI employee — e.g. "Sarah, AI Receptionist" — that communicates with customers as the hotel itself. Customers talk to Sarah through WhatsApp or website chat. Hotel owners supervise Sarah through a mobile-first control center.
-
-## Architecture
-
-| Layer | Responsibility |
-|-------|---------------|
-| **Customer Experience** | Web chat widget, WhatsApp — branded to the hotel |
-| **Business Owner Experience** | Mobile-first control center for managing the AI employee |
-| **Internal Control Plane** | Platform monitoring, multi-business oversight |
+An AI-powered multi-agent platform for businesses — starting with hotels.
 
 ## Quick Start
 
 ```bash
 npm install
-npm run dev      # Start the API server on http://localhost:3000
-npm run demo     # Run the offline demo (no API keys needed)
-npm test         # Run tests
+npm run dev
 ```
 
-### Default credentials (demo only)
-- Admin: `admin@demo.hotel` / `demo-admin-123`
-- Staff: `staff@demo.hotel` / `demo-staff-123`
+Visit: http://localhost:3000
 
-## How It Works
+**Demo login**: `admin@demo.hotel` / `demo-admin-123`
 
-1. Customer sends message (web chat or WhatsApp)
-2. Message enters the **orchestrator** (src/core/orchestrator.ts)
-3. Intent is classified (rule-based, deterministic, bilingual FR/EN)
-4. Specialist agent handles the intent using **governed tools**
-5. Tools query/update the database — the LLM never invents business facts
-6. Response is sent back through the same channel
+## What's Included
 
-## Tech Stack
+| Feature | Status |
+|---------|--------|
+| AI Employee configuration (Sarah, AI Receptionist) | ✅ |
+| Multi-step onboarding wizard | ✅ |
+| Business services & policies management | ✅ |
+| Knowledge base (FAQs) | ✅ |
+| Booking flow with confirmation | ✅ |
+| Availability & pricing queries | ✅ |
+| Escalation to human | ✅ |
+| Multi-turn conversation context | ✅ |
+| Customer-facing chat widget | ✅ |
+| Owner dashboard | ✅ |
+| Mobile-first responsive design | ✅ |
+| Tenant isolation | ✅ |
+| LLM provider abstraction (Anthropic, OpenAI-compatible, demo) | ✅ |
+| Embedded chat widget | ✅ |
+| End-to-end booking workflow | ✅ |
 
-- **Runtime:** Node.js (built-in http module — zero framework dependencies)
-- **Database:** SQLite via `node:sqlite` (built-in)
-- **AI Provider:** Abstraction layer (demo/OpenAI/Anthropic)
-- **Multi-tenancy:** tenant_id isolation on all tables
-- **Frontend:** Vanilla HTML/CSS/JS (mobile-first, no build step)
+## Architecture
 
-## Project Structure
+- **Backend**: Node.js built-in HTTP (zero dependencies)
+- **Database**: SQLite via node:sqlite
+- **AI**: Intent classification + deterministic tools + LLM abstraction
+- **Frontend**: Vanilla JS dashboard + embeddable widget
+- **Testing**: Node.js built-in test runner
 
-```
-src/
-├── core/
-│   ├── orchestrator.ts    # Message routing + AI provider abstraction
-│   ├── intents.ts         # Bilingual intent classification
-│   ├── tools/             # Governed business tools (deterministic)
-│   └── dateparse.ts       # Natural language date parsing
-├── db/
-│   ├── client.ts          # SQLite access layer
-│   ├── schema.ts          # 15-table schema
-│   ├── repositories.ts    # Tenant-scoped queries
-│   └── seed.ts            # Realistic demo data
-├── llm/
-│   ├── provider.ts        # LLM abstraction (demo/OpenAI/Anthropic)
-│   └── ...
-├── channels/
-│   └── whatsapp.ts        # WhatsApp Cloud API adapter
-├── agents/
-│   └── index.ts           # 16 specialist agent handlers
-├── demo/
-│   ├── simulator.ts       # Offline demo scenarios
-│   └── run-demo.ts        # CLI demo runner
-└── dashboard/
-    ├── index.html         # Business owner control center
-    ├── app.js             # Dashboard logic
-    ├── styles.css         # Design system
-    └── chat-demo.html     # Customer-facing web chat widget
-```
+## API Endpoints
 
-## Tests
+### Public (Customer)
+- `POST /api/chat` — Send message, get AI reply
+- `GET /api/hotels/:slug/branding` — Hotel branding + employee info
+- `GET /widget.html?hotel=slug` — Customer chat widget
 
-Run with:
+### Authenticated (Owner)
+- `GET /api/hotels` — List hotels
+- `GET /api/hotels/:id` — Hotel details
+- `POST /api/hotels` — Create hotel
+- `GET /api/hotels/:id/employee` — Employee profile
+- `PUT /api/hotels/:id/employee` — Update employee
+- `POST /api/hotels/:id/test-employee` — Test employee chat
+- `GET /api/hotels/:id/services` — List services
+- `POST /api/hotels/:id/services` — Create service
+- `GET /api/hotels/:id/policies` — List policies
+- `POST /api/hotels/:id/policies` — Create policy
+- `GET /api/hotels/:id/onboarding` — Onboarding checklist
+
+## LLM Integration
+
+| Provider | Status |
+|----------|--------|
+| Demo (deterministic fallback) | ✅ Built-in |
+| Anthropic Claude | ✅ Via `ANTHROPIC_API_KEY` |
+| OpenAI-compatible | ✅ Via `OPENAI_COMPATIBLE_*` |
+
+## Testing
+
 ```bash
 npm test
 ```
 
-Tests cover:
-- Availability queries
-- Booking flow
-- Tenant isolation (cross-tenant data cannot leak)
+19/19 tests passing.
 
-## Security
+## Demo Mode
 
-- Password hashing (scrypt)
-- Rate limiting on public endpoints
-- Cross-tenant access prevention
-- No hardcoded secrets (all via .env)
-- Audit logging of all AI actions
+Without LLM credentials, uses deterministic intent-based responses with real database data.
 
-## Roadmap
+With LLM keys, connects to real models.
 
-- [ ] Owner dashboard redesign (mobile-first, premium UI)
-- [ ] Embedded web chat widget for hotel websites
-- [ ] WhatsApp QR connection (Evolution API)
-- [ ] Voice channel
-- [ ] Additional verticals (restaurants, clinics, schools)
+## Deployment
+
+```bash
+npm run build
+npm start
+```
+
+## GitHub
+
+Repository: `https://github.com/penndivinefavour-lab/ai-business-operating-system`
+Branch: `main`
 
 ## License
 
 MIT
-
----
-
-*Built in Cameroon 🇨🇲*
