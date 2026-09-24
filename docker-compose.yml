@@ -2,7 +2,11 @@ version: '3.8'
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      platforms:
+        - linux/amd64
+        - linux/arm64
     ports:
       - "${PORT:-3000}:3000"
     environment:
@@ -12,18 +16,25 @@ services:
       - DATABASE_URL=frontdesk.db
       - PRODUCTION=true
       - COOKIE_SECURE=${COOKIE_SECURE:-true}
-      - APP_SECRET=${APP_SECRET:-change-me-in-production}
+      - APP_SECRET=${APP_SECRET:-please-change-this-secret}
       - AI_PROVIDER=${AI_PROVIDER:-demo}
       - AI_API_KEY=${AI_API_KEY:-}
       - CORS_ORIGIN=${CORS_ORIGIN:-}
+      - SESSION_MAX_AGE_HOURS=${SESSION_MAX_AGE_HOURS:-24}
     volumes:
       - data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
-      timeout: 3s
+      timeout: 5s
       retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1G
 
 volumes:
   data:
