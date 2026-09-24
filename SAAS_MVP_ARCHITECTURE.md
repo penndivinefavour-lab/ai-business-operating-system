@@ -2,157 +2,126 @@
 
 ## Overview
 
-The AI Business Operating System is a multi-tenant SaaS platform where each business gets a configurable AI employee that communicates with customers, handles bookings, captures leads, and learns the business.
+The AI Business Operating System is a multi-tenant SaaS platform where each business gets a configurable AI employee that communicates with customers, handles bookings, manages inquiries, and escalates to humans when needed.
+
+## Architecture Principles
+
+1. **Vertical-Neutral Core**: The AI employee/orchestrator/tool model works for hotels, restaurants, clinics, schools, hospitals, real-estate businesses, and SMEs.
+2. **Tenant Isolation**: Every authenticated request is scoped to a business the user actually owns.
+3. **Deterministic Facts**: Critical business data (prices, availability, policies) comes ONLY from database-backed tools, never from LLM hallucination.
+4. **Channel-Agnostic**: The core AI doesn't know or care if a message came from web widget, WhatsApp, or future channels.
 
 ## Data Model
 
-### Core Entities
+### Platform Level
+- **accounts**: Platform user authentication (email, password_hash, name)
+- **sessions**: Durable session tokens (token, account_id, business_id, created_at, last_active)
+- **businesses**: Tenant entities (hotel, restaurant, clinic, etc.)
+- **business_memberships**: Account↔Business relationships with roles
 
-| Table | Purpose |
-|-------|---------|
-| `accounts` | Platform-level user accounts (email, password hash, name) |
-| `businesses` | One row per tenant business (hotel, restaurant, clinic, etc.) |
-| `business_memberships` | Account ↔ Business relationship with role (owner/staff) |
-| `hotels` | Legacy hotel-specific config (kept for backward compatibility) |
-| `hotel_users` | Legacy hotel admin accounts |
-| `employee_profiles` | AI employee identity, personality, tone, status |
-| `business_services` | Configurable services/products per business |
-| `business_policies` | Business rules (cancellation, pets, etc.) |
-| `onboarding_checklist` | Per-business setup progress tracking |
-| `rooms` | Hotel room inventory |
-| `customers` | Per-hotel customer records |
-| `conversations` | Customer ↔ AI employee conversations |
-| `messages` | Individual messages within conversations |
-| `reservations` | Booking records |
-| `leads` | Potential customers |
-| `knowledge_items` | FAQ/knowledge base |
-| `escalations` | Human handoff events |
-| `followups` | Pending tasks |
-| `audit_log` | Activity/audit trail |
-
-### Multi-Tenant Architecture
-
-```
-Account (platform user)
-    ↓
-BusinessMembership (account_id, business_id, role)
-    ↓
-Business (tenant)
-    ↓
-Hotel (legacy, business_id FK)
-    ↓
-EmployeeProfile, Rooms, Customers, Conversations, etc.
-```
-
-## Authentication Flow
-
-### Signup
-1. User submits email, password, name, business name
-2. System creates:
-   - Account row
-   - Business row (with unique slug)
-   - BusinessMembership (role=owner)
-   - Legacy hotel row (for compatibility)
-   - EmployeeProfile (draft status)
-   - OnboardingChecklist
-3. Returns session token
-
-### Login
-1. User submits email + password
-2. System checks accounts table (scrypt password verify)
-3. Returns session token with account + business context
-
-### Session Management
-- In-memory token store (can be replaced with Redis for production)
-- 24-hour token expiration
-- Bearer token in Authorization header or session cookie
-
-## Authorization Model
-
-### Public Endpoints
-| Endpoint | Access |
-|----------|--------|
-| GET /api/health | Public |
-| POST /api/signup | Public |
-| POST /api/login | Public |
-| POST /api/logout | Public |
-| GET /api/businesses/:slug/branding | Public |
-| POST /api/widget/chat | Public (rate-limited) |
-| GET /api/widget/conversations/:id/messages | Public |
-| GET /widget.html | Public |
-| GET / | Landing page |
-| GET /signup, /login | Public |
-
-### Authenticated Endpoints
-| Endpoint | Authorization |
-|----------|---------------|
-| GET /api/me | Valid session |
-| POST /api/me/business | Valid session + membership |
-| GET /api/businesses | Valid session (own businesses only) |
-| POST /api/businesses | Valid session |
-| GET /api/businesses/:id | Session + membership check |
-| PUT /api/businesses/:id | Session + membership check |
-| GET /api/businesses/:id/employee | Session + ownership |
-| PUT /api/businesses/:id/employee | Session + ownership |
-| GET /api/hotels/:id/* | Session + ownership (via business) |
-
-### Cross-Tenant Protection
-Every authenticated route verifies:
-1. Session is valid (token exists, not expired)
-2. Session's account has a `business_memberships` row for the requested business
-3. If not → 403 Forbidden
-
-## Employee Lifecycle
-
-```
-Draft → Active → Paused → Active → ...
-```
-
-- **Employee is created** when a business is created (signup or business creation)
-- **Employee is configured** through the 9-step onboarding wizard
-- **Employee is activated** by setting status='active'
-- **Employee can be paused** by setting status='paused'
-- **Employee is "ready"** when onboarding is complete AND status is 'active'
-
-## Customer Widget Flow
-
-1. **Hotel owner** copies embed snippet from dashboard
-2. **Customer** visits hotel website → widget loads
-3. **Widget** calls GET /api/businesses/:slug/branding → gets employee identity
-4. **Customer** types message → POST /api/widget/chat → gets AI reply
-5. **Conversation** is maintained via conversationId
-
-### Widget Embed Methods
-- **Script loader**: `<script src="/widget.js" data-business="slug" async></script>`
-- **Iframe**: `<iframe src="/widget.html?business=slug">`
-- **JS API**: `window.HermesChat.open({ hotelSlug: 'slug' })`
-
-## Vertical Expansion
-
-The `businesses` table supports any vertical:
-- `business_type = 'hotel'` → rooms, reservations, check-in/out
-- `business_type = 'restaurant'` → tables, reservations, menu
-- `business_type = 'clinic'` → appointments, services
-- `business_type = 'real_estate'` → properties, viewings
-- `business_type = 'sme'` → services, inquiries
-
-The AI employee model is vertical-agnostic — it's configured via services, policies, and knowledge, not hard-coded to hotels.
+### Tenant Level (all tables carry business_id)
+- **hotels**: Hotel-specific config (legacy, being phased into businesses)
+- **employee_profiles**: AI employee identity, personality, tone
+- **rooms**: Inventory with pricing
+- **customers**: Contact info, language preference
+- **conversations**: Channel-linked conversation records
+- **messages**: Individual messages within conversations
+- **reservations**: Booking records with status workflow
+- **business_services**: Configurable services with pricing
+- **business_policies**: Business rules and policies
+- **knowledge_items**: FAQ/knowledge base
+- **leads**: Prospective customer tracking
+- **escalations**: Human escalation records
+- **followups**: Task tracking
+- **audit_log**: Activity events
+- **agent_runs**: Performance and debugging data
 
 ## Security Model
 
-1. **Password security**: scrypt with random salt, timing-safe comparison
-2. **Token security**: 256-bit random hex tokens
-3. **Tenant isolation**: Every data query filters by hotel_id/business_id
-4. **Rate limiting**: Per-IP rate limits on chat and auth endpoints
-5. **Public API boundary**: Only intentionally public data exposed (no DB IDs, no secrets)
-6. **CORS**: Widget endpoints allow cross-origin
-7. **Input validation**: All inputs validated before DB operations
-8. **SQL injection prevention**: Parameterized queries throughout
+### Authentication
+- **Passwords**: scrypt hashing (salt + hash stored in database)
+- **Sessions**: Database-backed tokens with 24h TTL
+- **Cookies**: httpOnly, secure (in production), SameSite=Lax
+- **Bearer Tokens**: Supported for API access
 
-## Future Phases
+### Authorization
+- **Public Routes**: Widget chat, branding, signup, login, health check
+- **Protected Routes**: All `/api/businesses/:id/*` routes require membership
+- **Cross-Tenant Protection**: 403 Forbidden for unauthorized business access
 
-1. **WhatsApp integration** (Evolution API)
-2. **Production deployment** (Docker, Nginx, SSL)
-3. **Advanced analytics** (conversion tracking, employee performance)
-4. **Multi-language support** (expand beyond fr/en)
-5. **Custom AI model selection** (per-business model config)
+### Production Security
+- **CSRF Protection**: Token-based (generated from session)
+- **Input Validation**: Email format, password length, sanitization
+- **Security Headers**: CSP, X-Frame-Options, X-Content-Type-Options, etc.
+- **Error Handling**: No stack traces or internal details in production responses
+
+## API Architecture
+
+### Public Endpoints
+- `POST /api/signup` - Account registration
+- `POST /api/login` - Authentication
+- `POST /api/logout` - Session destruction
+- `GET /api/health` - Health check
+- `GET /api/businesses/:slug/branding` - Public business info
+- `POST /api/widget/chat` - Customer chat (widget)
+
+### Protected Endpoints
+- `GET /api/me` - Session info
+- `GET /api/businesses` - List user's businesses
+- `POST /api/businesses` - Create business
+- `GET /api/businesses/:id` - Business details
+- `GET /api/businesses/:id/employee` - Employee config
+- `PUT /api/businesses/:id/employee` - Update employee
+- `GET/POST /api/businesses/:id/services` - Services CRUD
+- `GET/POST /api/businesses/:id/policies` - Policies CRUD
+- `GET /api/businesses/:id/conversations` - Conversation list
+- `GET /api/businesses/:id/reservations` - Reservation list
+
+## Channel Architecture
+
+### Web Widget
+- **Embed**: `<script src="widget.js" data-hotel="slug">` or iframe
+- **Branding**: Dynamic from business config
+- **Session**: conversationId maintained client-side
+
+### WhatsApp (Official Cloud API)
+- **Inbound**: Webhook → signature verification → orchestrator
+- **Outbound**: Cloud API message delivery
+- **Mapping**: Phone number → conversation
+
+## LLM Integration
+
+### Providers
+- **Demo**: Deterministic fallback (default, no credentials needed)
+- **Anthropic**: Claude 3.5 Haiku (fast, affordable)
+- **OpenAI-Compatible**: Any OpenAI API-compatible service
+
+### Context Building
+The LLM receives:
+1. Employee identity (name, role, personality, tone)
+2. Business context (services, policies, knowledge)
+3. Conversation history (last 8 messages)
+4. Verified facts from deterministic tools
+
+### Safety
+- FCFA amount verification (no unbacked figures)
+- Fallback to deterministic reply on LLM failure
+- No system prompt exposure to customers
+
+## Deployment
+
+### Docker
+- Node.js 24 Alpine base
+- Volume-mounted /data for persistent SQLite
+- Health check on /api/health
+
+### Manual
+- Node.js 24+ with built-in SQLite
+- PM2 for process management
+- Nginx for HTTPS reverse proxy
+
+## Scaling Path
+
+1. **MVP**: Single instance + SQLite (current)
+2. **Growth**: Add Redis for sessions, migrate to PostgreSQL
+3. **Scale**: Load balancer + multiple instances + read replicas

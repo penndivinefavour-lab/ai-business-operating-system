@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATA_DIR=/data
+      - DATABASE_URL=frontdesk.db
+      - PRODUCTION=true
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      - APP_SECRET=${APP_SECRET:-change-me-in-production}
+      - AI_PROVIDER=${AI_PROVIDER:-demo}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+    volumes:
+      - data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  data:

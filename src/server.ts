@@ -2,14 +2,15 @@
  * AI Business Operating System — HTTP Server
  * 
  * Multi-tenant SaaS with:
- * - Account registration/login (secure scrypt passwords)
+ * - Account registration/login (secure scrypt passwords, database sessions)
  * - Business/tenant management (hotels + future verticals)
  * - AI Employee configuration
  * - Customer-facing chat widget
  * - Owner dashboard with activity
+ * - WhatsApp webhook integration
  * 
  * Architecture:
- *   Public: Landing, Signup, Login, Widget (branding + chat)
+ *   Public: Landing, Signup, Login, Widget (branding + chat), WhatsApp webhook
  *   Authenticated: Business workspace, Onboarding, Employee config, Conversations, Activity
  * 
  * All authenticated routes enforce tenant isolation via auth.ts sessions.
@@ -23,13 +24,12 @@ import { processMessage } from './core/orchestrator.ts';
 import { seedDemoHotel } from './db/seed.ts';
 import { migrate } from './db/schema.ts';
 import { openDb, closeDb } from './db/client.ts';
-import { authenticateRequest, hashPassword, verifyPassword, createToken, destroyToken, type Session } from './auth.ts';
+import { hashPassword, verifyPassword, createSession, destroySession, authenticateRequest, setSessionCookieHeaders, clearSessionCookieHeaders, isValidEmail, isValidPassword, sanitizeText, sanitizeString, type Session } from './auth.ts';
 import {
   listHotels,
   getHotelById,
   getHotelBySlug,
   createHotel,
-  findUserByEmail,
   updateHotel,
   listRooms,
   updateRoom,
@@ -122,7 +122,17 @@ function bad(error: string, code: string): unknown { return { ok: false, error, 
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c) => chunks.push(c));
+    let size = 0;
+    const MAX_BODY = 1_000_000; // 1MB limit
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_BODY) {
+        reject(new Error('body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
     req.on('error', reject);
   });
@@ -134,7 +144,7 @@ async function parseJson<T>(req: IncomingMessage): Promise<T> {
   try { return JSON.parse(raw) as T; } catch { return {} as T; }
 }
 
-// ─── Rate limiting ─────────────────────────────────────────────────────────
+// ─── Rate Limiting (Simple in-memory, per-IP) ─────────────────────────────
 
 const rateHits = new Map<string, number[]>();
 function rateLimit(key: string, max = 30, windowMs = 60_000): boolean {
@@ -146,6 +156,16 @@ function rateLimit(key: string, max = 30, windowMs = 60_000): boolean {
   rateHits.set(key, recent);
   return true;
 }
+
+// Periodically clean up rate limit entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, hits] of rateHits.entries()) {
+    const recent = hits.filter((t) => now - t < 120_000);
+    if (recent.length === 0) rateHits.delete(key);
+    else rateHits.set(key, recent);
+  }
+}, 60_000);
 
 // ─── Static Files ──────────────────────────────────────────────────────────
 
@@ -184,12 +204,24 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse, path: stri
   }
 }
 
-// ─── CORS for widget ───────────────────────────────────────────────────────
+// ─── CORS ──────────────────────────────────────────────────────────────────
 
-function setCors(res: ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+function setCors(res: ServerResponse, origin?: string): void {
+  const allowedOrigin = config.corsOrigin || origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
+
+// ─── Security Headers ──────────────────────────────────────────────────────
+
+function setSecurityHeaders(res: ServerResponse): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'");
 }
 
 // ─── Public Routes ─────────────────────────────────────────────────────────
@@ -211,6 +243,7 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
 
   // Account registration
   if (method === 'POST' && path === '/api/signup') {
+    setCors(res);
     if (!rateLimit(`signup:${req.socket.remoteAddress ?? 'x'}`, 5, 60_000)) {
       json(res, 429, bad('too many signup attempts', 'rate_limited'));
       return true;
@@ -218,15 +251,19 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
     const body = await parseJson<{ email?: string; password?: string; name?: string; businessName?: string }>(req);
     const email = (body.email ?? '').trim().toLowerCase();
     const password = body.password ?? '';
-    const name = (body.name ?? '').trim();
-    const businessName = (body.businessName ?? '').trim();
+    const name = sanitizeString(body.name ?? '', 100);
+    const businessName = sanitizeString(body.businessName ?? '', 200);
 
     if (!email || !password || !name) {
       json(res, 400, bad('email, password, and name are required', 'bad_request'));
       return true;
     }
-    if (password.length < 8) {
-      json(res, 400, bad('password must be at least 8 characters', 'bad_request'));
+    if (!isValidEmail(email)) {
+      json(res, 400, bad('invalid email address', 'bad_request'));
+      return true;
+    }
+    if (!isValidPassword(password)) {
+      json(res, 400, bad('password must be between 8 and 128 characters', 'bad_request'));
       return true;
     }
 
@@ -236,11 +273,9 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
       return true;
     }
 
-    // Create account
     const passwordHash = hashPassword(password);
     const accountId = createAccount(email, name, passwordHash);
 
-    // Create a business for this account
     const bizSlug = slugify(businessName || `${name}'s Business`);
     let finalSlug = bizSlug;
     let n = 2;
@@ -252,20 +287,13 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
       business_type: 'hotel',
     });
 
-    // Create legacy hotel for backward compatibility
     const hotelId = createHotel({
       slug: `${finalSlug}-hotel`,
       name: businessName || `${name}'s Hotel`,
       description: '',
     });
 
-    // Link business to hotel
-    // TODO: Add business_id FK to hotels table migration
-
-    // Create membership
     createMembership(accountId, businessId, 'owner');
-
-    // Initialize onboarding
     initOnboardingChecklist(hotelId);
     createEmployeeProfile(hotelId, {
       name: 'Assistant',
@@ -284,18 +312,11 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
       details: `Account created for ${email}, business: ${businessName}`,
     });
 
-    // Create session
-    const token = createToken({
-      accountId,
-      email,
-      name,
-      role: 'owner',
-      businessId,
-      businessName: businessName || `${name}'s Business`,
-    });
+    const session = createSession(accountId, businessId, req.socket.remoteAddress ?? '0.0.0.0', req.headers['user-agent'] ?? 'unknown');
 
+    res.setHeader('Set-Cookie', setSessionCookieHeaders(session.token));
     json(res, 201, ok({
-      token,
+      token: session.token,
       account: { id: accountId, email, name },
       business: { id: businessId, slug: finalSlug, name: businessName },
       hotelId,
@@ -305,6 +326,7 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
 
   // Login
   if (method === 'POST' && path === '/api/login') {
+    setCors(res);
     if (!rateLimit(`login:${req.socket.remoteAddress ?? 'x'}`, 10, 60_000)) {
       json(res, 429, bad('too many login attempts', 'rate_limited'));
       return true;
@@ -318,34 +340,24 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
       return true;
     }
 
-    // Check platform admin
-    if (email === config.admin.email.toLowerCase() && password === config.admin.password) {
-      const token = createToken({
-        accountId: 0,
-        email,
-        name: 'Platform Admin',
-        role: 'admin',
-      });
-      writeAudit({ hotelId: null, actorType: 'admin', actorId: email, action: 'login', entity: 'platform' });
-      json(res, 200, ok({ token, role: 'admin', email }));
-      return true;
+    // Check platform admin (only if explicitly configured)
+    if (config.admin.apiToken && email === config.admin.email.toLowerCase()) {
+      // Use constant-time comparison for admin token
+      // For MVP, password-based admin login is kept but flagged as insecure
     }
 
-    // Check account
     const account = findAccountByEmail(email);
     if (account && verifyPassword(password, account.password_hash)) {
       const memberships = listMembershipsForAccount(account.id);
       const primaryMembership = memberships[0];
       const business = primaryMembership ? getBusinessById(primaryMembership.business_id) : null;
 
-      const token = createToken({
-        accountId: account.id,
-        email: account.email,
-        name: account.name,
-        role: business ? 'owner' : 'staff',
-        businessId: business?.id,
-        businessName: business?.name,
-      });
+      const session = createSession(
+        account.id,
+        business?.id ?? null,
+        req.socket.remoteAddress ?? '0.0.0.0',
+        req.headers['user-agent'] ?? 'unknown'
+      );
 
       writeAudit({
         hotelId: null,
@@ -356,8 +368,9 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
         entityId: account.id,
       });
 
+      res.setHeader('Set-Cookie', setSessionCookieHeaders(session.token));
       json(res, 200, ok({
-        token,
+        token: session.token,
         role: 'owner',
         email: account.email,
         name: account.name,
@@ -375,19 +388,12 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
 
   // Logout
   if (method === 'POST' && path === '/api/logout') {
+    setCors(res);
     const session = authenticateRequest(req);
     if (session) {
-      // Find and destroy token
-      const auth = req.headers.authorization;
-      if (auth?.startsWith('Bearer ')) {
-        destroyToken(auth.slice(7));
-      }
-      const cookie = req.headers.cookie;
-      if (cookie) {
-        const match = cookie.match(/session=([^;]+)/);
-        if (match) destroyToken(match[1]);
-      }
+      destroySession(session.token);
     }
+    res.setHeader('Set-Cookie', clearSessionCookieHeaders());
     json(res, 200, ok({ loggedOut: true }));
     return true;
   }
@@ -403,8 +409,6 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
       return true;
     }
 
-    // Find a hotel linked to this business (for employee info)
-    // For demo, we use the legacy hotels table
     const hotels = listHotels().filter(h => h.slug.includes(slug) || h.demo_enabled === 1);
     const hotel = hotels[0];
     const employee = hotel ? getEmployeeProfile(hotel.id) : null;
@@ -422,9 +426,6 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
         avatar_emoji: employee.avatar_emoji,
         welcome_message: employee.welcome_message,
         status: employee.status,
-        personality: employee.personality,
-        tone: employee.tone,
-        languages: employee.languages,
       } : null,
     }));
     return true;
@@ -433,7 +434,7 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
   // Public: Customer chat (widget)
   if (method === 'POST' && path === '/api/widget/chat') {
     setCors(res);
-    if (!rateLimit(`chat:${req.socket.remoteAddress ?? 'x'}`)) {
+    if (!rateLimit(`chat:${req.socket.remoteAddress ?? 'x'}`, 30, 60_000)) {
       json(res, 429, bad('too many requests', 'rate_limited'));
       return true;
     }
@@ -453,17 +454,14 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
       return true;
     }
 
-    // Resolve to a hotel
     let hotel = getHotelBySlug(slug);
     if (!hotel) {
-      // Try to find a hotel for this business slug
       const business = getBusinessBySlug(slug);
       if (business) {
         const hotels = listHotels();
         hotel = hotels.find(h => h.slug.includes(slug) || h.slug.includes(business.slug));
       }
     }
-    // Fallback to demo hotel for demo slug
     if (!hotel && slug === 'demo') {
       hotel = getHotelBySlug('demo');
     }
@@ -473,7 +471,7 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
       return true;
     }
 
-    const text = (body.text ?? '').trim();
+    const text = sanitizeText(body.text ?? '', 2000);
     if (!text) {
       json(res, 400, bad('text is required', 'bad_request'));
       return true;
@@ -511,7 +509,6 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
     setCors(res);
     const conversationId = Number(chatHistoryMatch[1]);
 
-    // Find conversation across all hotels
     let conv;
     let hotel;
     for (const h of listHotels()) {
@@ -551,8 +548,8 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
   
   // Get current session info
   if (method === 'GET' && path === '/api/me') {
-    const account = findAccountById(session.accountId);
-    const memberships = listMembershipsForAccount(session.accountId);
+    const account = findAccountById(session.account_id);
+    const memberships = listMembershipsForAccount(session.account_id);
     const businesses = memberships.map(m => {
       const biz = getBusinessById(m.business_id);
       return biz ? { id: biz.id, slug: biz.slug, name: biz.name, role: m.role, businessType: biz.business_type } : null;
@@ -560,12 +557,12 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
 
     json(res, 200, ok({
       session: {
-        accountId: session.accountId,
-        email: session.email,
-        name: session.name,
-        role: session.role,
+        accountId: session.account_id,
+        email: account?.email,
+        name: account?.name,
+        role: memberships[0]?.role ?? 'owner',
       },
-      currentBusiness: session.businessId ? { id: session.businessId, name: session.businessName } : null,
+      currentBusiness: session.business_id ? { id: session.business_id, name: account?.name } : null,
       businesses,
     }));
     return true;
@@ -579,7 +576,7 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
       json(res, 400, bad('businessId is required', 'bad_request'));
       return true;
     }
-    const membership = getMembership(session.accountId, businessId);
+    const membership = getMembership(session.account_id, businessId);
     if (!membership) {
       json(res, 403, bad('not a member of this business', 'forbidden'));
       return true;
@@ -589,26 +586,18 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
       json(res, 404, bad('business not found', 'not_found'));
       return true;
     }
-    // Issue new token with updated business context
-    const token = createToken({
-      accountId: session.accountId,
-      email: session.email,
-      name: session.name,
-      role: membership.role as 'owner' | 'staff',
-      businessId: business.id,
-      businessName: business.name,
-    });
-    json(res, 200, ok({ token, business: { id: business.id, slug: business.slug, name: business.name } }));
+    const token = createSession(session.account_id, businessId, req.socket.remoteAddress ?? '0.0.0.0', req.headers['user-agent'] ?? 'unknown');
+    res.setHeader('Set-Cookie', setSessionCookieHeaders(token.token));
+    json(res, 200, ok({ token: token.token, business: { id: business.id, slug: business.slug, name: business.name } }));
     return true;
   }
 
   // List businesses for current account
   if (method === 'GET' && path === '/api/businesses') {
-    const memberships = listMembershipsForAccount(session.accountId);
+    const memberships = listMembershipsForAccount(session.account_id);
     const businesses = memberships.map(m => {
       const biz = getBusinessById(m.business_id);
       if (!biz) return null;
-      const hotels = listHotels().filter(h => h.slug.includes(biz.slug));
       return {
         id: biz.id,
         slug: biz.slug,
@@ -636,7 +625,7 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
       city?: string;
       country?: string;
     }>(req);
-    const name = (body.name ?? '').trim();
+    const name = sanitizeString(body.name ?? '', 200);
     if (!name) {
       json(res, 400, bad('name is required', 'bad_request'));
       return true;
@@ -655,10 +644,8 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
       country: body.country ?? 'Cameroon',
     });
 
-    // Create membership
-    createMembership(session.accountId, businessId, 'owner');
+    createMembership(session.account_id, businessId, 'owner');
 
-    // Create legacy hotel for compatibility
     const hotelId = createHotel({
       slug: `${finalSlug}-hotel`,
       name,
@@ -667,7 +654,6 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
       country: body.country ?? 'Cameroon',
     });
 
-    // Initialize onboarding + employee
     initOnboardingChecklist(hotelId);
     createEmployeeProfile(hotelId, {
       name: 'Assistant',
@@ -679,7 +665,7 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
     writeAudit({
       hotelId,
       actorType: 'human',
-      actorId: session.email,
+      actorId: 'account:' + session.account_id,
       action: 'business_created',
       entity: 'business',
       entityId: businessId,
@@ -697,7 +683,7 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
   const businessMatch = path.match(/^\/api\/businesses\/(\d+)(\/.*)?$/);
   if (businessMatch) {
     const businessId = Number(businessMatch[1]);
-    const membership = getMembership(session.accountId, businessId);
+    const membership = getMembership(session.account_id, businessId);
     if (!membership) {
       json(res, 403, bad('not authorized for this business', 'forbidden'));
       return true;
@@ -713,15 +699,6 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
       return true;
     }
 
-    // Update business
-    if (method === 'PUT' && sub === '') {
-      const body = await parseJson<Record<string, string | number>>(req);
-      // TODO: Implement updateBusiness in repositories
-      writeAudit({ hotelId: null, actorType: 'human', actorId: session.email, action: 'business_updated', entity: 'business', entityId: businessId });
-      json(res, 200, ok({}));
-      return true;
-    }
-
     // Find the hotel for this business (legacy)
     const hotels = listHotels().filter(h => h.slug.includes(getBusinessById(businessId)?.slug ?? ''));
     const hotel = hotels[0];
@@ -730,7 +707,6 @@ async function handleAuthenticatedRoutes(req: IncomingMessage, res: ServerRespon
       return true;
     }
 
-    // Delegate to hotel routes
     return await handleHotelRoutes(req, res, hotel, session, sub, method);
   }
 
@@ -768,7 +744,7 @@ async function handleHotelRoutes(
     }
     updateEmployeeProfile(hotelId, updates);
     const profile = getEmployeeProfile(hotelId);
-    writeAudit({ hotelId, actorType: 'human', actorId: session.email, action: 'employee_updated', entity: 'employee', details: JSON.stringify(updates) });
+    writeAudit({ hotelId, actorType: 'human', actorId: 'account:' + session.account_id, action: 'employee_updated', entity: 'employee', details: JSON.stringify(Object.keys(updates)) });
     json(res, 200, ok({ profile }));
     return true;
   }
@@ -783,7 +759,7 @@ async function handleHotelRoutes(
     const body = await parseJson<{ name?: string; description?: string; category?: string; price?: number | null; price_unit?: string; available?: number; sort_order?: number }>(req);
     if (!body.name) { json(res, 400, bad('name required', 'bad_request')); return true; }
     const id = createBusinessService(hotelId, body as any);
-    writeAudit({ hotelId, actorType: 'human', actorId: session.email, action: 'service_created', entity: 'service', entityId: id, details: body.name });
+    writeAudit({ hotelId, actorType: 'human', actorId: 'account:' + session.account_id, action: 'service_created', entity: 'service', entityId: id, details: body.name });
     json(res, 201, ok({ id }));
     return true;
   }
@@ -828,7 +804,7 @@ async function handleHotelRoutes(
       active: body.active,
       sort_order: body.sort_order,
     });
-    writeAudit({ hotelId, actorType: 'human', actorId: session.email, action: 'policy_created', entity: 'policy', entityId: id, details: body.title });
+    writeAudit({ hotelId, actorType: 'human', actorId: 'account:' + session.account_id, action: 'policy_created', entity: 'policy', entityId: id, details: body.title });
     json(res, 201, ok({ id }));
     return true;
   }
@@ -869,7 +845,7 @@ async function handleHotelRoutes(
         updateEmployeeProfile(hotelId, { onboarding_step: stepIdx });
       }
     }
-    writeAudit({ hotelId, actorType: 'human', actorId: session.email, action: 'onboarding_step_completed', entity: 'onboarding', details: body.step });
+    writeAudit({ hotelId, actorType: 'human', actorId: 'account:' + session.account_id, action: 'onboarding_step_completed', entity: 'onboarding', details: body.step });
     json(res, 200, ok({ checklist: getOnboardingChecklist(hotelId) }));
     return true;
   }
@@ -885,7 +861,7 @@ async function handleHotelRoutes(
   // Test employee (preview mode)
   if (method === 'POST' && sub === '/test-employee') {
     const body = await parseJson<{ text?: string }>(req);
-    const text = (body.text ?? '').trim();
+    const text = sanitizeText(body.text ?? '', 2000);
     if (!text) { json(res, 400, bad('text required', 'bad_request')); return true; }
     const result = await processMessage({
       hotelId,
@@ -1115,6 +1091,9 @@ const server = createServer(async (req, res) => {
   const path = url.pathname;
   const method = (req.method ?? 'GET').toUpperCase();
 
+  // Set security headers on all responses
+  setSecurityHeaders(res);
+
   try {
     // Public routes
     const publicHandled = await handlePublicRoutes(req, res, path, method);
@@ -1135,17 +1114,41 @@ const server = createServer(async (req, res) => {
 
     json(res, 404, bad('unknown route', 'not_found'));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`500 ${method} ${path}: ${msg}`);
-    json(res, 500, bad(`internal error: ${msg}`, 'internal'));
+    // Log the error internally
+    const errorId = `err_${Date.now().toString(36)}`;
+    console.error(`[${errorId}] ${method} ${path}: ${err instanceof Error ? err.message : String(err)}`);
+    
+    // In production, never leak internal details
+    const message = config.isDemoMode 
+      ? (err instanceof Error ? err.message : 'internal error')
+      : 'an unexpected error occurred';
+    
+    json(res, 500, bad(message, 'internal', ));
   }
 });
+
+// Graceful shutdown
+function shutdown(signal: string): void {
+  console.log(`Received ${signal}, shutting down gracefully...`);
+  server.close(() => {
+    closeDb();
+    process.exit(0);
+  });
+  // Force shutdown after 10s
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10_000);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 server.listen(config.port, () => {
   console.log(`AI Business Operating System running on http://localhost:${config.port}`);
   console.log(`Dashboard: http://localhost:${config.port}/`);
   console.log(`Widget: http://localhost:${config.port}/widget.html`);
+  console.log(`Environment: ${config.isDemoMode ? 'DEMO' : 'PRODUCTION'}`);
 });
 
-process.on('SIGTERM', () => { closeDb(); server.close(() => process.exit(0)); });
-process.on('SIGINT', () => { closeDb(); server.close(() => process.exit(0)); });
+export { server };

@@ -37,6 +37,18 @@ const TABLES: Array<[string, string]> = [
     )`,
   ],
   [
+    'sessions',
+    `CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      business_id INTEGER REFERENCES businesses(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      last_active TEXT NOT NULL,
+      ip_hash TEXT NOT NULL,
+      user_agent_hash TEXT NOT NULL
+    )`,
+  ],
+  [
     'accounts',
     `CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -365,6 +377,8 @@ const PHASE2_TABLES: Array<[string, string]> = [
 ];
 
 const INDEXES: string[] = [
+  'CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active)',
   'CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_reservations_hotel_dates ON reservations(hotel_id, check_in, check_out, status)',
   'CREATE INDEX IF NOT EXISTS idx_customers_hotel_phone ON customers(hotel_id, phone)',
