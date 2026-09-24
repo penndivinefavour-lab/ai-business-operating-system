@@ -1,5 +1,6 @@
-# Dockerfile — Multi-arch (ARM64 + AMD64) for Oracle Cloud A1 / x86 VPS
-FROM --platform=$BUILDPLATFORM node:24-alpine AS builder
+# Dockerfile for blitz.cloud (and general Docker hosting)
+# Requirements: non-root, port 8080, amd64, persistent volume
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 COPY package*.json ./
@@ -9,7 +10,7 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Create non-root user
+# Create non-root user (required by blitz.cloud)
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Copy dependencies from builder
@@ -22,14 +23,17 @@ COPY src ./src
 # Create persistent data directory with correct permissions
 RUN mkdir -p /data && chown -R appuser:appgroup /data /app
 
-# Expose port
-EXPOSE 3000
+# Declare volume for SQLite persistence across restarts
+VOLUME ["/data"]
+
+# blitz.cloud expects port 8080 by default
+EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://localhost:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Switch to non-root user
+# Switch to non-root user (required by blitz.cloud)
 USER appuser
 
 # Start application

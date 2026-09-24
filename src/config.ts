@@ -47,7 +47,7 @@ export const config = (() => {
     root,
     dataDir,
     dbPath,
-    port: int('PORT', 3000),
+    port: int('PORT', 8080),
     
     // Security
     appSecret: str('APP_SECRET', isDemoMode ? 'dev-insecure-secret-change-me' : ''),
