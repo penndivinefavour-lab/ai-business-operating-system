@@ -6,9 +6,9 @@
 
 ---
 
-## Phase 5: Production-Readiness & Pilot Foundation — IN PROGRESS
+## Phase 5: Production-Readiness & Pilot Foundation — COMPLETE
 
-### What Is Being Built
+All Phase 5 deliverables are implemented and verified:
 
 #### Security Hardening
 - Database-backed sessions (durable, survives restart)
@@ -39,7 +39,7 @@
 - Updated .env.example
 
 ### Test Results
-- **26/26 tests passing** (preserved from Phase 4)
+- **26/26 tests passing**
 
 ### Security Audit Findings (Fixed)
 1. In-memory sessions → Database-backed sessions
@@ -48,6 +48,11 @@
 4. Error stack traces leaked → Generic production error messages
 5. No CSRF protection → Added CSRF token generation/verification
 6. No cookie security → Added httpOnly, secure, sameSite
+7. Customer widget pointed at obsolete routes → now uses
+   `GET /api/businesses/:slug/branding` and
+   `POST /api/widget/chat` (verified end-to-end)
+8. `GET /` dashboard returned 403 on Windows due to path-separator
+   mismatch in the static-file guard → fixed
 
 ---
 
@@ -85,10 +90,15 @@
 
 ## Known Limitations
 
-1. **No live LLM in demo**: Uses deterministic fallback (by design)
+1. **No live LLM in demo**: Uses deterministic fallback (by design; configuration change to enable)
 2. **No production deployment yet**: Local demo + Docker support added
 3. **WhatsApp not activated**: Needs real credentials for live testing
 4. **SQLite only**: PostgreSQL migration path documented for scaling
+5. **Seeded demo hotel has no dashboard account**: `seed.ts` creates a
+   `hotel_users` row only, so the dashboard requires a new `POST /api/signup`.
+   Customer widget chat works without authentication.
+6. **Docker port**: the container listens on `8080`, not the `3000` shown in
+   `npm run dev`. Map `-p 8080:8080` when running locally.
 
 ---
 

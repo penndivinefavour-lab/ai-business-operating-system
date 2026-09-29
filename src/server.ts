@@ -184,7 +184,7 @@ const MIME: Record<string, string> = {
 
 async function serveStatic(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
   try {
-    let filePath = normalize(path);
+    let filePath = normalize(path).split('\\').join('/');
     if (filePath === '/' || filePath === '') filePath = '/index.html';
     const full = join(DASHBOARD_DIR, filePath);
     if (!full.startsWith(DASHBOARD_DIR)) { res.writeHead(403); res.end(); return; }
@@ -404,22 +404,24 @@ async function handlePublicRoutes(req: IncomingMessage, res: ServerResponse, pat
     setCors(res);
     const slug = brandingMatch[1];
     const business = getBusinessBySlug(slug);
-    if (!business) {
+    // Fallback: seeded demo hotels are not linked to a business row; resolve by hotel slug.
+    const hotel = business
+      ? listHotels().find(h => h.slug.includes(slug) || h.slug.includes(business.slug) || h.demo_enabled === 1)
+      : getHotelBySlug(slug);
+    if (!business && !hotel) {
       json(res, 404, bad('business not found', 'not_found'));
       return true;
     }
 
-    const hotels = listHotels().filter(h => h.slug.includes(slug) || h.demo_enabled === 1);
-    const hotel = hotels[0];
     const employee = hotel ? getEmployeeProfile(hotel.id) : null;
 
     json(res, 200, ok({
-      slug: business.slug,
-      name: business.name,
-      description: business.description,
-      city: business.city,
-      country: business.country,
-      businessType: business.business_type,
+      slug: business ? business.slug : slug,
+      name: business ? business.name : hotel!.name,
+      description: business ? business.description : hotel!.description,
+      city: business ? business.city : hotel!.city,
+      country: business ? business.country : hotel!.country,
+      businessType: business ? business.business_type : 'hotel',
       employee: employee ? {
         name: employee.name,
         role: employee.role,

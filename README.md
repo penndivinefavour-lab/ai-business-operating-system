@@ -11,7 +11,9 @@ npm run dev
 
 Visit: http://localhost:3000
 
-**Demo login**: `admin@demo.hotel` / `demo-admin-123`
+**Note**: there is no seeded dashboard login. Create an account via the dashboard
+sign-up form or `POST /api/signup`. The seeded demo hotel (`demo`) is available to
+the public chat widget without authentication.
 
 ## What's Included
 
@@ -43,23 +45,36 @@ Visit: http://localhost:3000
 
 ## API Endpoints
 
-### Public (Customer)
-- `POST /api/chat` — Send message, get AI reply
-- `GET /api/hotels/:slug/branding` — Hotel branding + employee info
+### Public (Customer widget)
+- `POST /api/widget/chat` — Send message, get AI reply
+- `GET /api/businesses/:slug/branding` — Business branding + employee info
+- `GET /api/widget/conversations/:id/messages` — Conversation history
 - `GET /widget.html?hotel=slug` — Customer chat widget
 
 ### Authenticated (Owner)
-- `GET /api/hotels` — List hotels
-- `GET /api/hotels/:id` — Hotel details
-- `POST /api/hotels` — Create hotel
-- `GET /api/hotels/:id/employee` — Employee profile
-- `PUT /api/hotels/:id/employee` — Update employee
-- `POST /api/hotels/:id/test-employee` — Test employee chat
-- `GET /api/hotels/:id/services` — List services
-- `POST /api/hotels/:id/services` — Create service
-- `GET /api/hotels/:id/policies` — List policies
-- `POST /api/hotels/:id/policies` — Create policy
-- `GET /api/hotels/:id/onboarding` — Onboarding checklist
+- `POST /api/signup` — Create account + first business
+- `POST /api/login` — Log in
+- `POST /api/logout` — Log out
+- `GET /api/me` — Current session
+- `POST /api/me/business` — Switch active business
+- `GET /api/businesses` — List your businesses
+- `POST /api/businesses` — Create a business
+- `GET /api/businesses/:id` — Business details
+- `GET /api/businesses/:id/employee` — Employee profile
+- `PUT /api/businesses/:id/employee` — Update employee
+- `POST /api/businesses/:id/test-employee` — Test employee chat
+- `GET /api/businesses/:id/services` — List services
+- `POST /api/businesses/:id/services` — Create service
+- `GET /api/businesses/:id/policies` — List policies
+- `POST /api/businesses/:id/policies` — Create policy
+- `GET /api/businesses/:id/onboarding` — Onboarding checklist
+- `POST /api/businesses/:id/onboarding/complete` — Complete onboarding
+- `GET /api/businesses/:id/overview` — Dashboard metrics
+- `GET /api/businesses/:id/conversations` — Conversations
+- `GET /api/businesses/:id/reservations` — Reservations
+- `GET /api/businesses/:id/customers` — Customers
+- `GET /api/businesses/:id/knowledge` — Knowledge base
+- `GET /api/businesses/:id/audit` — Audit log
 
 ## LLM Integration
 
@@ -75,7 +90,7 @@ Visit: http://localhost:3000
 npm test
 ```
 
-19/19 tests passing.
+26/26 tests passing.
 
 ## Demo Mode
 

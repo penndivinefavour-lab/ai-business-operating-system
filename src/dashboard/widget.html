@@ -369,18 +369,18 @@
       // ─── API Calls ───────────────────────────────────────────────────────────
       async function fetchBranding() {
         try {
-          const res = await fetch(`${API}/api/hotels/${config.hotelSlug}/branding`);
+          const res = await fetch(`${API}/api/businesses/${config.hotelSlug}/branding`);
           if (!res.ok) throw new Error('not found');
           return await res.json();
         } catch { return null; }
       }
 
       async function sendMessage(text) {
-        const res = await fetch(`${API}/api/chat`, {
+        const res = await fetch(`${API}/api/widget/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            hotelSlug: config.hotelSlug,
+            businessSlug: config.hotelSlug,
             text,
             conversationId,
           }),
