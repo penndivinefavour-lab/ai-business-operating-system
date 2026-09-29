@@ -1,4 +1,4 @@
-import { getDb } from './client.ts';
+import { getDb, IS_TURSO_MODE } from './client.ts';
 
 /**
  * Schema for the AI Business Operating System.
@@ -320,7 +320,7 @@ const PHASE2_TABLES: Array<[string, string]> = [
       personality TEXT NOT NULL DEFAULT 'professional_friendly',
       tone TEXT NOT NULL DEFAULT 'warm_professional',
       languages TEXT NOT NULL DEFAULT 'fr,en',
-      avatar_emoji TEXT NOT NULL DEFAULT '👩‍💼',
+      avatar_emoji TEXT NOT NULL DEFAULT '👩💼',
       welcome_message TEXT DEFAULT '',
       escalation_trigger TEXT DEFAULT 'guest_request',
       escalation_message TEXT DEFAULT '',
@@ -397,6 +397,7 @@ const MIGRATION_FALLBACKS: string[] = [
 
 export function migrate(): void {
   const db = getDb();
+  if (!db) return; // Turso mode — use asyncMigrate() instead
   for (const [, ddl] of TABLES) db.exec(ddl);
   for (const [, ddl] of PHASE2_TABLES) db.exec(ddl);
   for (const idx of INDEXES) {
@@ -404,5 +405,22 @@ export function migrate(): void {
   }
   for (const fallback of MIGRATION_FALLBACKS) {
     try { db.exec(fallback); } catch { /* ignore if column already exists */ }
+  }
+}
+
+/** Async migrate for Turso/libSQL mode. Runs DDL statements sequentially. */
+export async function asyncMigrate(): Promise<void> {
+  const { executeAsync } = await import('./client.ts');
+  for (const [, ddl] of TABLES) {
+    await executeAsync(ddl);
+  }
+  for (const [, ddl] of PHASE2_TABLES) {
+    await executeAsync(ddl);
+  }
+  for (const idx of INDEXES) {
+    try { await executeAsync(idx); } catch { /* ignore if index already exists */ }
+  }
+  for (const fallback of MIGRATION_FALLBACKS) {
+    try { await executeAsync(fallback); } catch { /* ignore if column already exists */ }
   }
 }

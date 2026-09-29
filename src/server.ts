@@ -22,8 +22,8 @@ import { join, extname, normalize } from 'node:path';
 import { config } from './config.ts';
 import { processMessage } from './core/orchestrator.ts';
 import { seedDemoHotel } from './db/seed.ts';
-import { migrate } from './db/schema.ts';
-import { openDb, closeDb } from './db/client.ts';
+import { migrate, asyncMigrate } from './db/schema.ts';
+import { openDb, closeDb, IS_TURSO_MODE, assertTursoConfigOrThrow } from './db/client.ts';
 import { hashPassword, verifyPassword, createSession, destroySession, authenticateRequest, setSessionCookieHeaders, clearSessionCookieHeaders, isValidEmail, isValidPassword, sanitizeText, sanitizeString, type Session } from './auth.ts';
 import {
   listHotels,
@@ -90,22 +90,49 @@ import { slugify } from './core/format.ts';
 
 // ─── Seed database on boot ─────────────────────────────────────────────────
 
-openDb();
-migrate();
-seedDemoHotel();
+if (IS_TURSO_MODE()) {
+  // Turso mode: async init
+  assertTursoConfigOrThrow();
+  console.log('[db] Initializing Turso/libSQL database...');
+  await asyncMigrate();
+  const { seedDemoHotelAsync } = await import('./db/seed.ts');
+  await seedDemoHotelAsync();
+  console.log('[db] Turso initialization complete.');
 
-// Initialize onboarding + employee for existing hotels
-for (const h of listHotels()) {
-  initOnboardingChecklist(h.id);
-  const existing = getEmployeeProfile(h.id);
-  if (!existing) {
-    createEmployeeProfile(h.id, {
-      name: 'Sarah',
-      role: 'Réceptionniste',
-      avatar_emoji: '👩‍💼',
-      welcome_message: `Bienvenue à ${h.name}! Je suis Sarah, votre réceptionniste numérique. Comment puis-je vous aider?`,
-      status: h.demo_enabled ? 'active' : 'draft',
-    });
+  // Initialize onboarding + employee for Turso hotels (async)
+  const { listHotels, getEmployeeProfile, createEmployeeProfile } = await import('./db/async-repositories.ts');
+  for (const h of await listHotels()) {
+    await initOnboardingChecklist(h.id);
+    const existing = await getEmployeeProfile(h.id);
+    if (!existing) {
+      await createEmployeeProfile(h.id, {
+        name: 'Sarah',
+        role: 'Réceptionniste',
+        avatar_emoji: '👩💼',
+        welcome_message: `Bienvenue à ${h.name}! Je suis Sarah, votre réceptionniste numérique. Comment puis-je vous aider?`,
+        status: h.demo_enabled ? 'active' : 'draft',
+      });
+    }
+  }
+} else {
+  // Local mode: sync init (no await needed)
+  openDb();
+  migrate();
+  seedDemoHotel();
+
+  // Initialize onboarding + employee for existing hotels
+  for (const h of listHotels()) {
+    initOnboardingChecklist(h.id);
+    const existing = getEmployeeProfile(h.id);
+    if (!existing) {
+      createEmployeeProfile(h.id, {
+        name: 'Sarah',
+        role: 'Réceptionniste',
+        avatar_emoji: '👩💼',
+        welcome_message: `Bienvenue à ${h.name}! Je suis Sarah, votre réceptionniste numérique. Comment puis-je vous aider?`,
+        status: h.demo_enabled ? 'active' : 'draft',
+      });
+    }
   }
 }
 
@@ -1130,10 +1157,10 @@ const server = createServer(async (req, res) => {
 });
 
 // Graceful shutdown
-function shutdown(signal: string): void {
+async function shutdown(signal: string): Promise<void> {
   console.log(`Received ${signal}, shutting down gracefully...`);
-  server.close(() => {
-    closeDb();
+  server.close(async () => {
+    await closeDb();
     process.exit(0);
   });
   // Force shutdown after 10s
